@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset='utf-8'>
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+    <link href='https://fonts.googleapis.com/css?family=Architects+Daughter' rel='stylesheet' type='text/css'>
+    <link rel="stylesheet" type="text/css" href="stylesheets/stylesheet.css" media="screen">
+    <link rel="stylesheet" type="text/css" href="stylesheets/github-light.css" media="screen">
+    <link rel="stylesheet" type="text/css" href="stylesheets/print.css" media="print">
+
+    <!--[if lt IE 9]>
+    <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <title>RPi Vibration Measurement by loruro</title>
+  </head>
+
+  <body>
+    <header>
+      <div class="inner">
+        <h1>RPi Vibration Measurement</h1>
+        <h2></h2>
+        <a href="https://github.com/loruro/RPi_Vibration_Measurement" class="button"><small>View project on</small> GitHub</a>
+      </div>
+    </header>
+
+    <div id="content-wrapper">
+      <div class="inner clearfix">
+        <section id="main-content">
+          <p><a href="https://loruro.github.io/"><sub>⟵ Back</sub></a></p>
+
+<p>This is the project of the device based on <a href="https://www.raspberrypi.org/">Raspberry Pi 2 B</a> and <a href="https://www.rtems.org/">RTEMS</a> intended for universal measurements of vibrations of machines and other physical properties.</p>
+
+<h2>
+<a id="setting-up-an-rtems-development-environment" class="anchor" href="#setting-up-an-rtems-development-environment" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Setting up an RTEMS development environment</h2>
+
+<p>Thanks to the <a href="http://alanstechnotes.blogspot.com/2013/03/rtems-on-raspberry-pi.html">Alan's Tech Notes</a> I managed to set up development environment properly on Ubuntu 16.04 64-bit.<br>
+Steps:</p>
+
+<div class="highlight highlight-source-shell"><pre>mkdir <span class="pl-k">~</span>/development/rtems/compiler
+<span class="pl-c1">cd</span> <span class="pl-k">~</span>/development/rtems
+
+git clone git://git.rtems.org/rtems-source-builder.git
+<span class="pl-c1">cd</span> rtems-source-builder
+source-builder/sb-check</pre></div>
+
+<p>You should see something like:</p>
+
+<pre><code>RTEMS Source Builder - Check, 4.12 (1c68dbb29392)
+Environment is ok
+</code></pre>
+
+<p>Next:</p>
+
+<div class="highlight highlight-source-shell"><pre><span class="pl-c1">cd</span> rtems
+../source-builder/sb-set-builder --log=build-log.txt --prefix=<span class="pl-smi">$HOME</span>/development/rtems/compiler/4.12 4.12/rtems-arm</pre></div>
+
+<p>It will take a while.<br>
+After successful build, edit <em>.profile</em> in your <em>$HOME</em> directory and add:</p>
+
+<div class="highlight highlight-source-shell"><pre>PATH=<span class="pl-smi">$HOME</span>/development/rtems/compiler/4.12/bin:<span class="pl-smi">$PATH</span></pre></div>
+
+<p>Logout and login back. After entering:</p>
+
+<div class="highlight highlight-source-shell"><pre>arm-rtems4.12-gcc -v</pre></div>
+
+<p>You should see compiler version.<br>
+Now follow next steps:</p>
+
+<div class="highlight highlight-source-shell"><pre><span class="pl-c1">cd</span> <span class="pl-k">~</span>/development/rtems
+git clone git://git.rtems.org/rtems.git rtems-git
+<span class="pl-c1">cd</span> rtems-git
+./bootstrap
+
+<span class="pl-c1">cd</span> <span class="pl-k">~</span>/development/rtems
+mkdir build-rtems-rpi
+<span class="pl-c1">cd</span> build-rtems-rpi
+../rtems-git/configure --target=arm-rtems4.12 --enable-rtemsbsp=raspberrypi2 --enable-tests=samples --enable-networking --enable-posix --prefix=<span class="pl-smi">$HOME</span>/development/rtems/bsps/4.12
+make install</pre></div>
+
+<p>Now environment should be ready.</p>
+
+<h2>
+<a id="simple-example" class="anchor" href="#simple-example" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Simple example</h2>
+
+<p>First, I wanted to test some basic interfaces and OS API functions.<br>
+I connected my custom board with <a href="https://en.wikipedia.org/wiki/Hitachi_HD44780_LCD_controller">HD44780 LCD</a> display and push button to Raspberry Pi by GPIO expansion in the following configuration:</p>
+
+<ul>
+<li>Button - GPIO 26</li>
+<li>HD44780 RS - GPIO 14</li>
+<li>HD44780 E - GPIO 15</li>
+<li>HD44780 D4 - GPIO 18</li>
+<li>HD44780 D5 - GPIO 23</li>
+<li>HD44780 D6 - GPIO 24</li>
+<li>HD44780 D7 - GPIO 25</li>
+</ul>
+
+<div align="center"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/simple_example.jpg" height="206"></div>
+
+<p>Next, I created basic application which displayed 0 or 1 on display whether the button was pushed or not. It utilized RTEMS API, including threads and mutexes.<br>
+The example application is placed in <a href="https://github.com/loruro/RPi_Vibration_Measurement/tree/master/src">src</a> directory. To build run:</p>
+
+<div class="highlight highlight-source-shell"><pre>make</pre></div>
+
+<p>To run the example on Raspberry Pi go into the resulting folder with binaries and get <em>.ralf</em> file. Rename it to <em>kernel.img</em> and place in empty SD card. Files <a href="https://github.com/raspberrypi/firmware/blob/master/boot/bootcode.bin">bootcode.bin</a> and <a href="https://github.com/raspberrypi/firmware/blob/master/boot/start.elf">start.elf</a> have to be placed on SD card as well (some versions of these files didn't work for me).<br>
+After placing SD card in Raspberry Pi and powering it up, 0 should be visible on the display.</p>
+
+<p>Also I managed to successfully run UART console together with I²C and SPI interfaces (not included in above example).</p>
+
+<h2>
+<a id="to-be-continued" class="anchor" href="#to-be-continued" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>To Be Continued</h2>
+
+<p><a href="http://creativecommons.org/licenses/by-sa/4.0/"><img alt="Creative Commons Licence" src="https://i.creativecommons.org/l/by-sa/4.0/88x31.png"></a><br>RPi Vibration Measurement by Karol Leszczyński is licensed under a <a href="http://creativecommons.org/licenses/by-sa/4.0/">Creative Commons Attribution-ShareAlike 4.0 International License</a>.</p>
+
+<p><a href="https://loruro.github.io/"><sub>⟵ Back</sub></a></p>
+        </section>
+
+        <aside id="sidebar">
+          <a href="https://github.com/loruro/RPi_Vibration_Measurement/zipball/master" class="button">
+            <small>Download</small>
+            .zip file
+          </a>
+          <a href="https://github.com/loruro/RPi_Vibration_Measurement/tarball/master" class="button">
+            <small>Download</small>
+            .tar.gz file
+          </a>
+
+          <p class="repo-owner"><a href="https://github.com/loruro/RPi_Vibration_Measurement"></a> is maintained by <a href="https://github.com/loruro">loruro</a>.</p>
+
+          <p>This page was generated by <a href="https://pages.github.com">GitHub Pages</a> using the Architect theme by <a href="https://twitter.com/jasonlong">Jason Long</a>.</p>
+        </aside>
+      </div>
+    </div>
+
+  
+  </body>
+</html>
