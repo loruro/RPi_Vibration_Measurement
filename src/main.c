@@ -104,9 +104,11 @@ rtems_task Task_Read_ADXL345(
   RTEMS_CHECK_RV(rv, "adxl345 start measure");
 
   while (1) {
-    float data;
-    rv = ioctl(fd, ADXL345_READ_DATA, (void*)&data);
-    printf("DataX: %f\n", data); /***************/
+    float data[3];
+    rv = ioctl(fd, ADXL345_READ_DATA_ALL, (void*)data);
+    printf("DataX: %f\n", data[0]); /***************/
+    printf("DataY: %f\n", data[1]); /***************/
+    printf("DataZ: %f\n", data[2]); /***************/
     RTEMS_CHECK_RV(rv, "adxl345 read data");
     (void) rtems_task_wake_after( rtems_clock_get_ticks_per_second() / 100 );
   }

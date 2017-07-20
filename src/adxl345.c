@@ -78,32 +78,83 @@ static int i2c_adxl345_read_register(
   return i2c_bus_transfer(dev->bus, msg, 2);
 }
 
+static int i2c_adxl345_read_multiple_registers(
+  i2c_dev *dev,
+  uint8_t reg,
+  uint8_t *reg_content,
+  uint8_t count
+) {
+  i2c_msg msg[2] = {
+    {
+    .addr = dev->address,
+    .flags = 0,
+    .len = 1,
+    .buf = &reg
+    },
+    {
+    .addr = dev->address,
+    .flags = I2C_M_RD,
+    .len = count,
+    .buf = (uint8_t*)reg_content
+    }
+  };
+
+  return i2c_bus_transfer(dev->bus, msg, 2);
+}
+
 static int i2c_adxl345_linux_ioctl(
   i2c_dev *dev,
   ioctl_command_t command,
   void *arg
 ) {
-  uint8_t reg_content;
+  uint8_t reg_content[6];
   int rv = 0;
+  int16_t data;
 
   switch ( command ) {
     case ADXL345_READ_DEVID:
-      rv = i2c_adxl345_read_register(dev, ADXL345_REG_DEVID, &reg_content);
-      *(uint8_t*)arg = reg_content;
+      rv = i2c_adxl345_read_register(dev, ADXL345_REG_DEVID, reg_content);
+      *(uint8_t*)arg = reg_content[0];
       break;
 
     case ADXL345_START_MEASURE:
-      rv = i2c_adxl345_read_register(dev, ADXL345_REG_POWER_CTL, &reg_content);
-      reg_content |= 0x08;
-      rv = i2c_adxl345_write_register(dev, ADXL345_REG_POWER_CTL, reg_content);
+      rv = i2c_adxl345_read_register(dev, ADXL345_REG_POWER_CTL, reg_content);
+      reg_content[0] |= 0x08;
+      rv = i2c_adxl345_write_register(dev, ADXL345_REG_POWER_CTL, reg_content[0]);
       break;
 
-    case ADXL345_READ_DATA:
-      rv = i2c_adxl345_read_register(dev, ADXL345_REG_DATAZ0, &reg_content);
-      int16_t data = (int16_t)reg_content;
-      rv = i2c_adxl345_read_register(dev, ADXL345_REG_DATAZ1, &reg_content);
-      data |= (int16_t)reg_content << 8;
+    case ADXL345_READ_DATA_X:
+      rv = i2c_adxl345_read_multiple_registers(dev, ADXL345_REG_DATAX0, reg_content, 2);
+      data = (int16_t)reg_content[0];
+      data |= (int16_t)reg_content[1] << 8;
       *(float*)arg = data * 0.00390625;
+      break;
+
+    case ADXL345_READ_DATA_Y:
+      rv = i2c_adxl345_read_multiple_registers(dev, ADXL345_REG_DATAY0, reg_content, 2);
+      data = (int16_t)reg_content[0];
+      data |= (int16_t)reg_content[1] << 8;
+      *(float*)arg = data * 0.00390625;
+      break;
+
+    case ADXL345_READ_DATA_Z:
+      rv = i2c_adxl345_read_multiple_registers(dev, ADXL345_REG_DATAZ0, reg_content, 2);
+      data = (int16_t)reg_content[0];
+      data |= (int16_t)reg_content[1] << 8;
+      *(float*)arg = data * 0.00390625;
+      break;
+
+    case ADXL345_READ_DATA_ALL:
+      rv = i2c_adxl345_read_multiple_registers(dev, ADXL345_REG_DATAX0, reg_content, 6);
+      data = (int16_t)reg_content[0];
+      data |= (int16_t)reg_content[1] << 8;
+      *((float*)arg + 0) = data * 0.00390625;
+      data = (int16_t)reg_content[2];
+      data |= (int16_t)reg_content[3] << 8;
+      *((float*)arg + 1) = data * 0.00390625;
+      data = (int16_t)reg_content[4];
+      data |= (int16_t)reg_content[5] << 8;
+      *((float*)arg + 2) = data * 0.00390625;
       break;
 
     default:
