@@ -1,0 +1,4 @@
+#!/bin/bash
+rm o-optimize/*
+make
+sudo mkimage -A arm -O rtems -T kernel -a 0x8000 -e 0x8000 -C none -n "RTEMS" -d o-optimize/vibmeas.ralf /var/lib/tftpboot/kernel.img
