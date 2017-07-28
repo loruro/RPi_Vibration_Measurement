@@ -34,6 +34,7 @@
 #include <rtems.h>
 #include <bsp.h>
 
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -43,8 +44,15 @@
 #include "bsp/i2c.h"
 #include <rtems/status-checks.h>
 
+#include "mb.h"
+
 #include "adxl345.h"
 #include "mcp9808.h"
+
+#define REG_INPUT_START 1000
+#define REG_INPUT_NREGS 4
+static USHORT   usRegInputStart = REG_INPUT_START;
+static USHORT   usRegInputBuf[REG_INPUT_NREGS];
 
 rtems_task Task_Read_MCP9808(
   rtems_task_argument unused
@@ -70,7 +78,7 @@ rtems_task Task_Read_MCP9808(
   while (1) {
     float temp;
     rv = ioctl(fd, MCP9808_READ_TEMP,(void*)&temp);
-    printf("Temp: %f\n", temp); /***************/
+    // printf("Temp: %f\n", temp); /***************/
     RTEMS_CHECK_RV(rv, "mcp9808 gpio set output");
     (void) rtems_task_wake_after( rtems_clock_get_ticks_per_second() / 4 );
   }
@@ -106,15 +114,80 @@ rtems_task Task_Read_ADXL345(
   while (1) {
     float data[3];
     rv = ioctl(fd, ADXL345_READ_DATA_ALL, (void*)data);
-    printf("DataX: %f\n", data[0]); /***************/
-    printf("DataY: %f\n", data[1]); /***************/
-    printf("DataZ: %f\n", data[2]); /***************/
+    // printf("DataX: %f\n", data[0]); /***************/
+    // printf("DataY: %f\n", data[1]); /***************/
+    // printf("DataZ: %f\n", data[2]); /***************/
     RTEMS_CHECK_RV(rv, "adxl345 read data");
     (void) rtems_task_wake_after( rtems_clock_get_ticks_per_second() / 100 );
   }
 
   rv = close(fd);
   RTEMS_CHECK_RV(rv, "Close /dev/i2c.adxl345");
+}
+
+rtems_task Task_Modbus(
+  rtems_task_argument unused
+)
+{
+  for( ;; )
+  {
+      /* Call the main polling loop of the Modbus protocol stack. Internally
+        * the polling loop waits for a new event by calling the port 
+        * dependent function xMBPortEventGet(  ). In the FreeRTOS port the
+        * event layer is built with queues.
+        */
+    ( void )eMBPoll(  );
+    usRegInputBuf[0]++;
+  }
+}
+
+eMBErrorCode
+eMBRegInputCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs )
+{
+    eMBErrorCode    eStatus = MB_ENOERR;
+    int             iRegIndex;
+
+    if( ( usAddress >= REG_INPUT_START )
+        && ( usAddress + usNRegs <= REG_INPUT_START + REG_INPUT_NREGS ) )
+    {
+        iRegIndex = ( int )( usAddress - usRegInputStart );
+        while( usNRegs > 0 )
+        {
+            *pucRegBuffer++ =
+                ( unsigned char )( usRegInputBuf[iRegIndex] >> 8 );
+            *pucRegBuffer++ =
+                ( unsigned char )( usRegInputBuf[iRegIndex] & 0xFF );
+            iRegIndex++;
+            usNRegs--;
+        }
+    }
+    else
+    {
+        eStatus = MB_ENOREG;
+    }
+
+    return eStatus;
+}
+
+eMBErrorCode
+eMBRegHoldingCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs,
+                 eMBRegisterMode eMode )
+{
+    return MB_ENOREG;
+}
+
+
+eMBErrorCode
+eMBRegCoilsCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNCoils,
+               eMBRegisterMode eMode )
+{
+    return MB_ENOREG;
+}
+
+eMBErrorCode
+eMBRegDiscreteCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNDiscrete )
+{
+    return MB_ENOREG;
 }
 
 rtems_task Init(
@@ -130,19 +203,32 @@ rtems_task Init(
   rv = rpi_setup_i2c_bus();
   RTEMS_CHECK_RV(rv, "rpi_setup_i2c_bus");
 
-  rtems_id id1,id2;
+  rtems_id id1,id2,id3;
   rtems_task_create(
-    rtems_build_name( 'T', 'A', '1', ' ' ), 1, RTEMS_MINIMUM_STACK_SIZE * 2, RTEMS_DEFAULT_MODES,
-    RTEMS_DEFAULT_ATTRIBUTES, &id1
+    rtems_build_name( 'T', 'A', '1', ' ' ), 1, RTEMS_MINIMUM_STACK_SIZE * 2, RTEMS_DEFAULT_MODES | RTEMS_TIMESLICE,
+    RTEMS_DEFAULT_ATTRIBUTES | RTEMS_FLOATING_POINT, &id1
   );
 
   rtems_task_create(
-    rtems_build_name( 'T', 'A', '2', ' ' ), 1, RTEMS_MINIMUM_STACK_SIZE * 2, RTEMS_DEFAULT_MODES,
-    RTEMS_DEFAULT_ATTRIBUTES, &id2
+    rtems_build_name( 'T', 'A', '2', ' ' ), 1, RTEMS_MINIMUM_STACK_SIZE * 2, RTEMS_DEFAULT_MODES | RTEMS_TIMESLICE,
+    RTEMS_DEFAULT_ATTRIBUTES | RTEMS_FLOATING_POINT, &id2
   );
+  
+  rtems_task_create(
+    rtems_build_name( 'T', 'A', '3', ' ' ), 1, RTEMS_MINIMUM_STACK_SIZE * 2, RTEMS_DEFAULT_MODES | RTEMS_TIMESLICE,
+    RTEMS_DEFAULT_ATTRIBUTES, &id3
+  );
+
+  /* Select either ASCII or RTU Mode. */
+  eMBErrorCode eStatus = eMBInit( MB_RTU, 0x0A, 0, 115200, MB_PAR_NONE );
+  assert( eStatus == MB_ENOERR );
+
+  /* Enable the Modbus Protocol Stack. */
+  eStatus = eMBEnable(  );
 
   rtems_task_start( id1, Task_Read_MCP9808, 1 );
   rtems_task_start( id2, Task_Read_ADXL345, 2 );
+  rtems_task_start( id3, Task_Modbus, 3 );
 
   status = rtems_task_delete( RTEMS_SELF );
 }
@@ -167,6 +253,8 @@ rtems_task Init(
 #define CONFIGURE_LIBIO_MAXIMUM_FILE_DESCRIPTORS 30
 
 #define CONFIGURE_MAXIMUM_TASKS 20
+
+#define CONFIGURE_MAXIMUM_TIMERS 10
 
 #define CONFIGURE_INIT_TASK_STACK_SIZE (32 * 1024)
 

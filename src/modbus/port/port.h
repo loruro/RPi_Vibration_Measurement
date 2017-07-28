@@ -25,12 +25,15 @@
 #include <assert.h>
 #include <inttypes.h>
 
+#include <bsp.h>
+
 #define	INLINE                      inline
 #define PR_BEGIN_EXTERN_C           extern "C" {
 #define	PR_END_EXTERN_C             }
 
-#define ENTER_CRITICAL_SECTION( )   
-#define EXIT_CRITICAL_SECTION( )    
+rtems_interrupt_level level;
+#define ENTER_CRITICAL_SECTION( ) rtems_interrupt_disable(level)
+#define EXIT_CRITICAL_SECTION( ) rtems_interrupt_enable(level) 
 
 typedef uint8_t BOOL;
 
@@ -50,5 +53,7 @@ typedef int32_t LONG;
 #ifndef FALSE
 #define FALSE           0
 #endif
+
+BOOL xMBPortSerialPoll(  );
 
 #endif

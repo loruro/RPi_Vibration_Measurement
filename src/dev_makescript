@@ -1,4 +1,9 @@
 #!/bin/bash
-rm o-optimize/*
+rm -r o-optimize/*
+mkdir -p o-optimize/modbus/rtu
+mkdir -p o-optimize/modbus/functions
+mkdir -p o-optimize/modbus/tcp
+mkdir -p o-optimize/modbus/ascii
+mkdir -p o-optimize/modbus/port
 make
 sudo mkimage -A arm -O rtems -T kernel -a 0x8000 -e 0x8000 -C none -n "RTEMS" -d o-optimize/vibmeas.ralf /var/lib/tftpboot/kernel.img

@@ -18,7 +18,8 @@
  *
  * File: $Id: porttimer.c,v 1.1 2006/08/22 21:35:13 wolti Exp $
  */
-
+/* ----------------------- RTEMS includes --------------------------------*/
+#include <bsp/irq.h>
 /* ----------------------- Platform includes --------------------------------*/
 #include "port.h"
 
@@ -26,14 +27,33 @@
 #include "mb.h"
 #include "mbport.h"
 
-/* ----------------------- static functions ---------------------------------*/
-static void prvvTIMERExpiredISR( void );
+/* ----------------------- Static variables ---------------------------------*/
+static uint32_t useconds;
+
+/* ----------------------- Static functions ---------------------------------*/
+static void prvvTIMERExpiredISR(void *arg);
 
 /* ----------------------- Start implementation -----------------------------*/
 BOOL
 xMBPortTimersInit( USHORT usTim1Timerout50us )
 {
-    return FALSE;
+    rtems_status_code status;
+    EXIT_CRITICAL_SECTION();
+    status = rtems_interrupt_handler_install(
+        BCM2835_IRQ_ID_GPU_TIMER_M1,
+        "ModbusTimer",
+        RTEMS_INTERRUPT_UNIQUE,
+        (rtems_interrupt_handler) prvvTIMERExpiredISR,
+        NULL
+    );
+    ENTER_CRITICAL_SECTION();
+
+    if (status == RTEMS_SUCCESSFUL) {
+        useconds = (uint32_t)usTim1Timerout50us * 50;
+        return TRUE;
+    } else {
+        return FALSE;
+    }
 }
 
 
@@ -41,20 +61,25 @@ inline void
 vMBPortTimersEnable(  )
 {
     /* Enable the timer with the timeout passed to xMBPortTimersInit( ) */
+    uint32_t next_cmp = BCM2835_REG(BCM2835_GPU_TIMER_CLO);
+    next_cmp += useconds; // Timer runs at 1 MHz.
+    BCM2835_REG(BCM2835_GPU_TIMER_C1) = next_cmp;
+    BCM2835_REG(BCM2835_GPU_TIMER_CS) = BCM2835_GPU_TIMER_CS_M1;
 }
 
 inline void
 vMBPortTimersDisable(  )
 {
     /* Disable any pending timers. */
+    BCM2835_REG(BCM2835_GPU_TIMER_C1) = BCM2835_REG(BCM2835_GPU_TIMER_CLO) - 1;
 }
 
 /* Create an ISR which is called whenever the timer has expired. This function
  * must then call pxMBPortCBTimerExpired( ) to notify the protocol stack that
  * the timer has expired.
  */
-static void prvvTIMERExpiredISR( void )
+static void prvvTIMERExpiredISR(void *arg)
 {
+    BCM2835_REG(BCM2835_GPU_TIMER_CS) = BCM2835_GPU_TIMER_CS_M1;
     ( void )pxMBPortCBTimerExpired(  );
 }
-
