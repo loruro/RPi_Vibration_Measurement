@@ -49,10 +49,12 @@
 #include "adxl345.h"
 #include "mcp9808.h"
 
-#define REG_INPUT_START 1000
-#define REG_INPUT_NREGS 4
+#define REG_INPUT_START 1
+#define REG_INPUT_NREGS 6
 static USHORT   usRegInputStart = REG_INPUT_START;
 static USHORT   usRegInputBuf[REG_INPUT_NREGS];
+
+rtems_id sem_id;
 
 rtems_task Task_Read_MCP9808(
   rtems_task_argument unused
@@ -118,6 +120,11 @@ rtems_task Task_Read_ADXL345(
     // printf("DataY: %f\n", data[1]); /***************/
     // printf("DataZ: %f\n", data[2]); /***************/
     RTEMS_CHECK_RV(rv, "adxl345 read data");
+    rtems_semaphore_obtain(sem_id, RTEMS_WAIT, RTEMS_NO_TIMEOUT);
+    for (uint8_t i = 0; i < 6; i++) {
+      usRegInputBuf[i] = *((uint16_t *)data + i);
+    }
+    rtems_semaphore_release(sem_id);
     (void) rtems_task_wake_after( rtems_clock_get_ticks_per_second() / 100 );
   }
 
@@ -151,6 +158,7 @@ eMBRegInputCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs )
         && ( usAddress + usNRegs <= REG_INPUT_START + REG_INPUT_NREGS ) )
     {
         iRegIndex = ( int )( usAddress - usRegInputStart );
+        rtems_semaphore_obtain(sem_id, RTEMS_WAIT, RTEMS_NO_TIMEOUT);
         while( usNRegs > 0 )
         {
             *pucRegBuffer++ =
@@ -160,6 +168,7 @@ eMBRegInputCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs )
             iRegIndex++;
             usNRegs--;
         }
+        rtems_semaphore_release(sem_id);
     }
     else
     {
@@ -225,6 +234,15 @@ rtems_task Init(
 
   /* Enable the Modbus Protocol Stack. */
   eStatus = eMBEnable(  );
+
+  status = rtems_semaphore_create(
+    rtems_build_name( 'S', 'E', 'M', '1' ),
+    1,
+    RTEMS_BINARY_SEMAPHORE,
+    0,
+    &sem_id
+  );
+  assert( status == RTEMS_SUCCESSFUL );
 
   rtems_task_start( id1, Task_Read_MCP9808, 1 );
   rtems_task_start( id2, Task_Read_ADXL345, 2 );
