@@ -86,8 +86,8 @@ vMBPortTimersDisable(  )
  */
 static void prvvTIMERExpiredISR(void *arg)
 {
+    BCM2835_REG(BCM2835_GPU_TIMER_CS) = BCM2835_GPU_TIMER_CS_M1;
     if (enabled) {
-        BCM2835_REG(BCM2835_GPU_TIMER_CS) = BCM2835_GPU_TIMER_CS_M1;
         enabled = false;
         ( void )pxMBPortCBTimerExpired(  );
     }
