@@ -29,6 +29,7 @@
 
 /* ----------------------- Static variables ---------------------------------*/
 static uint32_t useconds;
+static bool enabled = false;
 
 /* ----------------------- Static functions ---------------------------------*/
 static void prvvTIMERExpiredISR(void *arg);
@@ -38,6 +39,10 @@ BOOL
 xMBPortTimersInit( USHORT usTim1Timerout50us )
 {
     rtems_status_code status;
+
+    // xMBPortTimersInit() function is called inside critical section.
+    // This causes rtems_interrupt_handler_install() to hang. To fix it, we exit
+    // critical section just for handler installation.
     EXIT_CRITICAL_SECTION();
     status = rtems_interrupt_handler_install(
         BCM2835_IRQ_ID_GPU_TIMER_M1,
@@ -65,13 +70,14 @@ vMBPortTimersEnable(  )
     next_cmp += useconds; // Timer runs at 1 MHz.
     BCM2835_REG(BCM2835_GPU_TIMER_C1) = next_cmp;
     BCM2835_REG(BCM2835_GPU_TIMER_CS) = BCM2835_GPU_TIMER_CS_M1;
+    enabled = true;
 }
 
 inline void
 vMBPortTimersDisable(  )
 {
     /* Disable any pending timers. */
-    BCM2835_REG(BCM2835_GPU_TIMER_C1) = BCM2835_REG(BCM2835_GPU_TIMER_CLO) - 1;
+    enabled = false;
 }
 
 /* Create an ISR which is called whenever the timer has expired. This function
@@ -80,6 +86,9 @@ vMBPortTimersDisable(  )
  */
 static void prvvTIMERExpiredISR(void *arg)
 {
-    BCM2835_REG(BCM2835_GPU_TIMER_CS) = BCM2835_GPU_TIMER_CS_M1;
-    ( void )pxMBPortCBTimerExpired(  );
+    if (enabled) {
+        BCM2835_REG(BCM2835_GPU_TIMER_CS) = BCM2835_GPU_TIMER_CS_M1;
+        enabled = false;
+        ( void )pxMBPortCBTimerExpired(  );
+    }
 }
