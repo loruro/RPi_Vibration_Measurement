@@ -43,6 +43,7 @@
 
 #include "bsp/i2c.h"
 #include <rtems/status-checks.h>
+#include <rtems/printer.h>
 
 #include "mb.h"
 
@@ -62,6 +63,15 @@ rtems_task Task_Read_MCP9808(
 {
   printf("*** I2C -- task wake after ***\n");
   printf("printf Test\n");
+  
+  rtems_name name;
+  rtems_id period;
+  rtems_status_code status;
+  name = rtems_build_name( 'P', 'E', 'R', '2' );
+  status = rtems_rate_monotonic_create( name, &period );
+  if ( status != RTEMS_SUCCESSFUL ) {
+    printf( "rtems_monotonic_create failed with status of %d.\n", status );
+  }
 
   int rv = 0;
   int fd;
@@ -78,11 +88,14 @@ rtems_task Task_Read_MCP9808(
   RTEMS_CHECK_RV(rv, "Open /dev/i2c.mcp9808");
 
   while (1) {
+    rtems_rate_monotonic_period( period, rtems_clock_get_ticks_per_second() / 4 );
     float temp;
     rv = ioctl(fd, MCP9808_READ_TEMP,(void*)&temp);
     // printf("Temp: %f\n", temp); /***************/
     RTEMS_CHECK_RV(rv, "mcp9808 gpio set output");
-    (void) rtems_task_wake_after( rtems_clock_get_ticks_per_second() / 4 );
+    // rtems_printer printer;
+    // rtems_print_printer_printf( &printer );
+    // rtems_rate_monotonic_report_statistics_with_plugin( &printer );
   }
 
   rv = close(fd);
@@ -95,6 +108,15 @@ rtems_task Task_Read_ADXL345(
 {
   printf("*** I2C -- task wake after ***\n");
   printf("printf Test\n");
+
+  rtems_name name;
+  rtems_id period;
+  rtems_status_code status;
+  name = rtems_build_name( 'P', 'E', 'R', '1' );
+  status = rtems_rate_monotonic_create( name, &period );
+  if ( status != RTEMS_SUCCESSFUL ) {
+    printf( "rtems_monotonic_create failed with status of %d.\n", status );
+  }
 
   int rv = 0;
   int fd;
@@ -114,6 +136,7 @@ rtems_task Task_Read_ADXL345(
   RTEMS_CHECK_RV(rv, "adxl345 start measure");
 
   while (1) {
+    rtems_rate_monotonic_period( period, rtems_clock_get_ticks_per_second() / 100 );
     float data[3];
     rv = ioctl(fd, ADXL345_READ_DATA_ALL, (void*)data);
     // printf("DataX: %f\n", data[0]); /***************/
@@ -125,7 +148,6 @@ rtems_task Task_Read_ADXL345(
       usRegInputBuf[i] = *((uint16_t *)data + i);
     }
     rtems_semaphore_release(sem_id);
-    (void) rtems_task_wake_after( rtems_clock_get_ticks_per_second() / 100 );
   }
 
   rv = close(fd);
@@ -214,17 +236,17 @@ rtems_task Init(
 
   rtems_id id1,id2,id3;
   rtems_task_create(
-    rtems_build_name( 'T', 'A', '1', ' ' ), 1, RTEMS_MINIMUM_STACK_SIZE * 2, RTEMS_DEFAULT_MODES | RTEMS_TIMESLICE,
+    rtems_build_name( 'T', 'A', '1', ' ' ), 2, RTEMS_MINIMUM_STACK_SIZE * 2, RTEMS_DEFAULT_MODES,
     RTEMS_DEFAULT_ATTRIBUTES | RTEMS_FLOATING_POINT, &id1
   );
 
   rtems_task_create(
-    rtems_build_name( 'T', 'A', '2', ' ' ), 1, RTEMS_MINIMUM_STACK_SIZE * 2, RTEMS_DEFAULT_MODES | RTEMS_TIMESLICE,
+    rtems_build_name( 'T', 'A', '2', ' ' ), 1, RTEMS_MINIMUM_STACK_SIZE * 2, RTEMS_DEFAULT_MODES,
     RTEMS_DEFAULT_ATTRIBUTES | RTEMS_FLOATING_POINT, &id2
   );
   
   rtems_task_create(
-    rtems_build_name( 'T', 'A', '3', ' ' ), 1, RTEMS_MINIMUM_STACK_SIZE * 2, RTEMS_DEFAULT_MODES | RTEMS_TIMESLICE,
+    rtems_build_name( 'T', 'A', '3', ' ' ), 3, RTEMS_MINIMUM_STACK_SIZE * 2, RTEMS_DEFAULT_MODES,
     RTEMS_DEFAULT_ATTRIBUTES, &id3
   );
 
@@ -273,6 +295,8 @@ rtems_task Init(
 #define CONFIGURE_MAXIMUM_TASKS 20
 
 #define CONFIGURE_MAXIMUM_TIMERS 10
+
+#define CONFIGURE_MAXIMUM_PERIODS 10
 
 #define CONFIGURE_INIT_TASK_STACK_SIZE (32 * 1024)
 
