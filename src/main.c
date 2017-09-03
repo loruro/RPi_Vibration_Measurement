@@ -231,7 +231,8 @@ rtems_task Init(
 
   int rv = 0;
   
-  rv = rpi_setup_i2c_bus();
+  rpi_i2c_init();
+  rv = rpi_i2c_register_bus("/dev/i2c", 400000);
   RTEMS_CHECK_RV(rv, "rpi_setup_i2c_bus");
 
   rtems_id id1,id2,id3;
