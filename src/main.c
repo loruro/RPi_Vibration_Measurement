@@ -50,10 +50,16 @@
 #include "adxl345.h"
 #include "mcp9808.h"
 
+#define BUFFER_LENGTH 20
 #define REG_INPUT_START 1
-#define REG_INPUT_NREGS 6
-static USHORT   usRegInputStart = REG_INPUT_START;
-static USHORT   usRegInputBuf[REG_INPUT_NREGS];
+#define REG_INPUT_NREGS 6 * BUFFER_LENGTH
+#define REG_DISCRETE_START 1
+#define REG_DISCRETE_NREGS 1
+// static USHORT   usRegInputStart = REG_INPUT_START;
+static USHORT   usRegInputBuf1[REG_INPUT_NREGS];
+static USHORT   usRegInputBuf2[REG_INPUT_NREGS];
+static BOOL     dataReady = 0;
+static uint8_t  bufferNumber = 1;
 
 rtems_id sem_id;
 
@@ -135,6 +141,7 @@ rtems_task Task_Read_ADXL345(
   rv = ioctl(fd, ADXL345_START_MEASURE, NULL);
   RTEMS_CHECK_RV(rv, "adxl345 start measure");
 
+  uint8_t bufferSample = 0;
   while (1) {
     rtems_rate_monotonic_period( period, rtems_clock_get_ticks_per_second() / 100 );
     float data[3];
@@ -143,11 +150,23 @@ rtems_task Task_Read_ADXL345(
     // printf("DataY: %f\n", data[1]); /***************/
     // printf("DataZ: %f\n", data[2]); /***************/
     RTEMS_CHECK_RV(rv, "adxl345 read data");
-    rtems_semaphore_obtain(sem_id, RTEMS_WAIT, RTEMS_NO_TIMEOUT);
-    for (uint8_t i = 0; i < 6; i++) {
-      usRegInputBuf[i] = *((uint16_t *)data + i);
+    USHORT *dataBuffer;
+    if (!bufferNumber) {
+      dataBuffer = usRegInputBuf2;
+    } else {
+      dataBuffer = usRegInputBuf1;
     }
-    rtems_semaphore_release(sem_id);
+    // rtems_semaphore_obtain(sem_id, RTEMS_WAIT, RTEMS_NO_TIMEOUT);
+    for (uint8_t i = 0; i < 6; i++) {
+      dataBuffer[i + bufferSample * 6] = *((uint16_t *)data + i);
+    }
+    // rtems_semaphore_release(sem_id);
+    bufferSample++;
+    if (bufferSample >= BUFFER_LENGTH) {
+      bufferSample = 0;
+      dataReady = 1;
+      bufferNumber ^= 1;
+    }
   }
 
   rv = close(fd);
@@ -166,45 +185,53 @@ rtems_task Task_Modbus(
         * event layer is built with queues.
         */
     ( void )eMBPoll(  );
-    usRegInputBuf[0]++;
   }
 }
 
 eMBErrorCode
 eMBRegInputCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs )
 {
-    eMBErrorCode    eStatus = MB_ENOERR;
-    int             iRegIndex;
+  eMBErrorCode    eStatus = MB_ENOERR;
+  int             iRegIndex;
 
-    if( ( usAddress >= REG_INPUT_START )
-        && ( usAddress + usNRegs <= REG_INPUT_START + REG_INPUT_NREGS ) )
-    {
-        iRegIndex = ( int )( usAddress - usRegInputStart );
-        rtems_semaphore_obtain(sem_id, RTEMS_WAIT, RTEMS_NO_TIMEOUT);
-        while( usNRegs > 0 )
-        {
-            *pucRegBuffer++ =
-                ( unsigned char )( usRegInputBuf[iRegIndex] >> 8 );
-            *pucRegBuffer++ =
-                ( unsigned char )( usRegInputBuf[iRegIndex] & 0xFF );
-            iRegIndex++;
-            usNRegs--;
-        }
-        rtems_semaphore_release(sem_id);
-    }
-    else
-    {
-        eStatus = MB_ENOREG;
+  if( ( usAddress >= REG_INPUT_START )
+    && ( usAddress + usNRegs <= REG_INPUT_START + REG_INPUT_NREGS ) )
+  {
+    iRegIndex = ( int )( usAddress - REG_INPUT_START );
+
+    dataReady = 0;
+    USHORT *dataBuffer;
+    if (!bufferNumber) {
+      dataBuffer = usRegInputBuf1;
+    } else {
+      dataBuffer = usRegInputBuf2;
     }
 
-    return eStatus;
+    // rtems_semaphore_obtain(sem_id, RTEMS_WAIT, RTEMS_NO_TIMEOUT);
+    while( usNRegs > 0 )
+    {
+      *pucRegBuffer++ =
+          ( UCHAR )( dataBuffer[iRegIndex] >> 8 );
+      *pucRegBuffer++ =
+          ( UCHAR )( dataBuffer[iRegIndex] & 0xFF );
+      iRegIndex++;
+      usNRegs--;
+    }
+    // rtems_semaphore_release(sem_id);
+  }
+  else
+  {
+    eStatus = MB_ENOREG;
+  }
+
+  return eStatus;
 }
 
 eMBErrorCode
 eMBRegHoldingCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs,
                  eMBRegisterMode eMode )
 {
-    return MB_ENOREG;
+  return MB_ENOREG;
 }
 
 
@@ -212,13 +239,33 @@ eMBErrorCode
 eMBRegCoilsCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNCoils,
                eMBRegisterMode eMode )
 {
-    return MB_ENOREG;
+  return MB_ENOREG;
 }
 
 eMBErrorCode
 eMBRegDiscreteCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNDiscrete )
 {
-    return MB_ENOREG;
+  eMBErrorCode    eStatus = MB_ENOERR;
+  int             iRegIndex;
+
+  if( ( usAddress >= REG_DISCRETE_START )
+    && ( usAddress + usNDiscrete <= REG_DISCRETE_START + REG_DISCRETE_NREGS ) )
+  {
+    iRegIndex = ( int )( usAddress - REG_DISCRETE_START );
+    while( usNDiscrete > 0 )
+    {
+      *pucRegBuffer++ =
+        ( UCHAR )( dataReady );
+      iRegIndex++;
+      usNDiscrete--;
+    }
+  }
+  else
+  {
+    eStatus = MB_ENOREG;
+  }
+
+  return eStatus;
 }
 
 rtems_task Init(
@@ -279,7 +326,7 @@ rtems_task Init(
 #define CONFIGURE_APPLICATION_NEEDS_CONSOLE_DRIVER
 #define CONFIGURE_APPLICATION_NEEDS_CLOCK_DRIVER
 
-#define CONFIGURE_MICROSECONDS_PER_TICK  1000
+// #define CONFIGURE_MICROSECONDS_PER_TICK  1000
 
 //#define CONFIGURE_MAXIMUM_TASKS             1
 
