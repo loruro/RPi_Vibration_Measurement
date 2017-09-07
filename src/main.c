@@ -50,18 +50,32 @@
 #include "adxl345.h"
 #include "mcp9808.h"
 
+/* Global variables ***************************/
+#define FREQ 100
 #define BUFFER_LENGTH 20
 #define REG_INPUT_START 1
-#define REG_INPUT_NREGS 6 * BUFFER_LENGTH
-#define REG_DISCRETE_START 1
-#define REG_DISCRETE_NREGS 1
-// static USHORT   usRegInputStart = REG_INPUT_START;
-static USHORT   usRegInputBuf1[REG_INPUT_NREGS];
-static USHORT   usRegInputBuf2[REG_INPUT_NREGS];
-static BOOL     dataReady = 0;
-static uint8_t  bufferNumber = 1;
+#define REG_INPUT_NREGS (2+120+2)
 
+#define REG_INPUT_INDEX_TIME 0
+#define REG_INPUT_INDEX_X 2
+#define REG_INPUT_INDEX_Y 42
+#define REG_INPUT_INDEX_Z 82
+#define REG_INPUT_INDEX_TEMP 122
+// #define REG_DISCRETE_START 1
+// #define REG_DISCRETE_NREGS 1
+// static USHORT   usRegInputStart = REG_INPUT_START;
+static USHORT usRegInputBuf[REG_INPUT_NREGS];
+
+float fifoX[FREQ];
+float fifoY[FREQ];
+float fifoZ[FREQ];
+uint32_t fifoStored = 0;
+uint32_t fifoWriteIndex = 0;
+uint32_t fifoReadIndex = 0;
+
+/* Semaphore ***************************/
 rtems_id sem_id;
+/**************************************/
 
 rtems_task Task_Read_MCP9808(
   rtems_task_argument unused
@@ -150,23 +164,35 @@ rtems_task Task_Read_ADXL345(
     // printf("DataY: %f\n", data[1]); /***************/
     // printf("DataZ: %f\n", data[2]); /***************/
     RTEMS_CHECK_RV(rv, "adxl345 read data");
-    USHORT *dataBuffer;
-    if (!bufferNumber) {
-      dataBuffer = usRegInputBuf2;
-    } else {
-      dataBuffer = usRegInputBuf1;
+
+    fifoX[fifoWriteIndex] = data[0];
+    fifoY[fifoWriteIndex] = data[1];
+    fifoZ[fifoWriteIndex] = data[2];
+    if (fifoStored < FREQ) {
+      fifoStored += 1;
     }
-    // rtems_semaphore_obtain(sem_id, RTEMS_WAIT, RTEMS_NO_TIMEOUT);
-    for (uint8_t i = 0; i < 6; i++) {
-      dataBuffer[i + bufferSample * 6] = *((uint16_t *)data + i);
+    fifoWriteIndex++;
+    if (fifoWriteIndex >= FREQ) {
+      fifoWriteIndex = 0;
     }
-    // rtems_semaphore_release(sem_id);
-    bufferSample++;
-    if (bufferSample >= BUFFER_LENGTH) {
-      bufferSample = 0;
-      dataReady = 1;
-      bufferNumber ^= 1;
-    }
+
+    // USHORT *dataBuffer;
+    // if (!bufferNumber) {
+    //   dataBuffer = usRegInputBuf2;
+    // } else {
+    //   dataBuffer = usRegInputBuf1;
+    // }
+    // // rtems_semaphore_obtain(sem_id, RTEMS_WAIT, RTEMS_NO_TIMEOUT);
+    // for (uint8_t i = 0; i < 6; i++) {
+    //   dataBuffer[i + bufferSample * 6] = *((uint16_t *)data + i);
+    // }
+    // // rtems_semaphore_release(sem_id);
+    // bufferSample++;
+    // if (bufferSample >= BUFFER_LENGTH) {
+    //   bufferSample = 0;
+    //   dataReady = 1;
+    //   bufferNumber ^= 1;
+    // }
   }
 
   rv = close(fd);
@@ -199,21 +225,29 @@ eMBRegInputCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs )
   {
     iRegIndex = ( int )( usAddress - REG_INPUT_START );
 
-    dataReady = 0;
-    USHORT *dataBuffer;
-    if (!bufferNumber) {
-      dataBuffer = usRegInputBuf1;
-    } else {
-      dataBuffer = usRegInputBuf2;
-    }
-
     // rtems_semaphore_obtain(sem_id, RTEMS_WAIT, RTEMS_NO_TIMEOUT);
+
+    // Check if requested registers overlap registers with acceleration data.
+    if (iRegIndex <= REG_INPUT_INDEX_Z + 19 && REG_INPUT_INDEX_X <= iRegIndex + usNRegs) {
+      while (fifoStored < 20) { // Possibility of infinite loop!
+        // Wait for the rest of fifo samples.
+        rtems_task_wake_after(rtems_clock_get_ticks_per_second() * (20 - fifoStored) / FREQ);
+      }
+      memcpy(&usRegInputBuf[REG_INPUT_INDEX_X], &fifoX[fifoReadIndex], sizeof(USHORT) * 40);
+      memcpy(&usRegInputBuf[REG_INPUT_INDEX_Y], &fifoY[fifoReadIndex], sizeof(USHORT) * 40);
+      memcpy(&usRegInputBuf[REG_INPUT_INDEX_Z], &fifoZ[fifoReadIndex], sizeof(USHORT) * 40);
+      fifoReadIndex += 20;
+      if (fifoReadIndex >= FREQ) {
+        fifoReadIndex = 0;
+      }
+      fifoStored -= 20;
+    }
     while( usNRegs > 0 )
     {
       *pucRegBuffer++ =
-          ( UCHAR )( dataBuffer[iRegIndex] >> 8 );
+          ( UCHAR )( usRegInputBuf[iRegIndex] >> 8 );
       *pucRegBuffer++ =
-          ( UCHAR )( dataBuffer[iRegIndex] & 0xFF );
+          ( UCHAR )( usRegInputBuf[iRegIndex] & 0xFF );
       iRegIndex++;
       usNRegs--;
     }
@@ -245,27 +279,28 @@ eMBRegCoilsCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNCoils,
 eMBErrorCode
 eMBRegDiscreteCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNDiscrete )
 {
-  eMBErrorCode    eStatus = MB_ENOERR;
-  int             iRegIndex;
+  return MB_ENOREG;
+  // eMBErrorCode    eStatus = MB_ENOERR;
+  // int             iRegIndex;
 
-  if( ( usAddress >= REG_DISCRETE_START )
-    && ( usAddress + usNDiscrete <= REG_DISCRETE_START + REG_DISCRETE_NREGS ) )
-  {
-    iRegIndex = ( int )( usAddress - REG_DISCRETE_START );
-    while( usNDiscrete > 0 )
-    {
-      *pucRegBuffer++ =
-        ( UCHAR )( dataReady );
-      iRegIndex++;
-      usNDiscrete--;
-    }
-  }
-  else
-  {
-    eStatus = MB_ENOREG;
-  }
+  // if( ( usAddress >= REG_DISCRETE_START )
+  //   && ( usAddress + usNDiscrete <= REG_DISCRETE_START + REG_DISCRETE_NREGS ) )
+  // {
+  //   iRegIndex = ( int )( usAddress - REG_DISCRETE_START );
+  //   while( usNDiscrete > 0 )
+  //   {
+  //     *pucRegBuffer++ =
+  //       ( UCHAR )( dataReady );
+  //     iRegIndex++;
+  //     usNDiscrete--;
+  //   }
+  // }
+  // else
+  // {
+  //   eStatus = MB_ENOREG;
+  // }
 
-  return eStatus;
+  // return eStatus;
 }
 
 rtems_task Init(
