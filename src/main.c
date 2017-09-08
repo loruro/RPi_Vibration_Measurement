@@ -77,6 +77,10 @@ uint32_t fifoReadIndex = 0;
 rtems_id sem_id;
 /**************************************/
 
+/* Test ******************************/
+uint16_t failures = 0;
+/**************************************/
+
 rtems_task Task_Read_MCP9808(
   rtems_task_argument unused
 )
@@ -170,6 +174,8 @@ rtems_task Task_Read_ADXL345(
     fifoZ[fifoWriteIndex] = data[2];
     if (fifoStored < FREQ) {
       fifoStored += 1;
+    } else {
+      failures++;
     }
     fifoWriteIndex++;
     if (fifoWriteIndex >= FREQ) {
@@ -252,6 +258,13 @@ eMBRegInputCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs )
       usNRegs--;
     }
     // rtems_semaphore_release(sem_id);
+  }
+  else if (usAddress == 1000) // Test
+  {
+    *pucRegBuffer++ =
+          ( UCHAR )( failures >> 8 );
+    *pucRegBuffer++ =
+          ( UCHAR )( failures & 0xFF );
   }
   else
   {
