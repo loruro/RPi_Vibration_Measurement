@@ -38,6 +38,8 @@
 #define ADXL345_REG_DATAY1 0x35
 #define ADXL345_REG_DATAZ0 0x36
 #define ADXL345_REG_DATAZ1 0x37
+#define ADXL345_REG_FIFO_CTL 0x38
+#define ADXL345_REG_FIFO_STATUS 0x39
 
 static int i2c_adxl345_write_register(i2c_dev *dev, uint8_t reg, uint8_t val)
 {
@@ -150,6 +152,18 @@ static int i2c_adxl345_linux_ioctl(
       } else {
         rv = -1;
       }
+      break;
+
+    case ADXL345_ENABLE_FIFO_STREAM:
+      rv = i2c_adxl345_read_register(dev, ADXL345_REG_FIFO_CTL, reg_content);
+      reg_content[0] &= 0x63;
+      reg_content[0] |= 0x80;
+      rv = i2c_adxl345_write_register(dev, ADXL345_REG_FIFO_CTL, reg_content[0]);
+      break;
+
+    case ADXL345_READ_FIFO_ENTRIES:
+      rv = i2c_adxl345_read_register(dev, ADXL345_REG_FIFO_STATUS, reg_content);
+      *(uint8_t*)arg = reg_content[0] & 0x3F;
       break;
 
     case ADXL345_READ_DATA_X:

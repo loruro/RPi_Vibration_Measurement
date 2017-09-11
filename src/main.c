@@ -78,7 +78,8 @@ rtems_id sem_id;
 /**************************************/
 
 /* Test ******************************/
-uint16_t failures = 0;
+uint16_t fifoOverrunRpi = 0;
+uint16_t fifoOverrunAdxl = 0;
 /**************************************/
 
 rtems_task Task_Read_MCP9808(
@@ -156,34 +157,45 @@ rtems_task Task_Read_ADXL345(
   fd = open("/dev/i2c.adxl345", O_RDWR);
   RTEMS_CHECK_RV(rv, "Open /dev/i2c.adxl345");
 
-  rv = ioctl(fd, ADXL345_START_MEASURE, NULL);
-  RTEMS_CHECK_RV(rv, "adxl345 start measure");
-
   uint8_t range = 3; // 16 g.
   rv = ioctl(fd, ADXL345_SET_RANGE, (void*)&range);
   RTEMS_CHECK_RV(rv, "adxl345 set range");
 
+  rv = ioctl(fd, ADXL345_ENABLE_FIFO_STREAM, NULL);
+  RTEMS_CHECK_RV(rv, "adxl345 enable fifo stream");
+
+  rv = ioctl(fd, ADXL345_START_MEASURE, NULL);
+  RTEMS_CHECK_RV(rv, "adxl345 start measure");
+
   // uint8_t bufferSample = 0;
   while (1) {
-    rtems_rate_monotonic_period( period, rtems_clock_get_ticks_per_second() / 100 );
+    rtems_rate_monotonic_period( period, rtems_clock_get_ticks_per_second() / 4 );
     float data[3];
-    rv = ioctl(fd, ADXL345_READ_DATA_ALL, (void*)data);
-    // printf("DataX: %f\n", data[0]); /***************/
-    // printf("DataY: %f\n", data[1]); /***************/
-    // printf("DataZ: %f\n", data[2]); /***************/
-    RTEMS_CHECK_RV(rv, "adxl345 read data");
-
-    fifoX[fifoWriteIndex] = data[0];
-    fifoY[fifoWriteIndex] = data[1];
-    fifoZ[fifoWriteIndex] = data[2];
-    if (fifoStored < FREQ) {
-      fifoStored += 1;
-    } else {
-      failures++;
+    uint8_t fifoEntries;
+    rv = ioctl(fd, ADXL345_READ_FIFO_ENTRIES, (void*)&fifoEntries);
+    if (fifoEntries >= 32) {
+      fifoOverrunAdxl++;
     }
-    fifoWriteIndex++;
-    if (fifoWriteIndex >= FREQ) {
-      fifoWriteIndex = 0;
+
+    for (uint8_t i = 0; i < fifoEntries; ++i) {
+      rv = ioctl(fd, ADXL345_READ_DATA_ALL, (void*)data);
+      // printf("DataX: %f\n", data[0]); /***************/
+      // printf("DataY: %f\n", data[1]); /***************/
+      // printf("DataZ: %f\n", data[2]); /***************/
+      RTEMS_CHECK_RV(rv, "adxl345 read data");
+
+      fifoX[fifoWriteIndex] = data[0];
+      fifoY[fifoWriteIndex] = data[1];
+      fifoZ[fifoWriteIndex] = data[2];
+      if (fifoStored < FREQ) {
+        fifoStored += 1;
+      } else {
+        fifoOverrunRpi++;
+      }
+      fifoWriteIndex++;
+      if (fifoWriteIndex >= FREQ) {
+        fifoWriteIndex = 0;
+      }
     }
 
     // USHORT *dataBuffer;
@@ -266,9 +278,13 @@ eMBRegInputCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs )
   else if (usAddress == 1000) // Test
   {
     *pucRegBuffer++ =
-          ( UCHAR )( failures >> 8 );
+          ( UCHAR )( fifoOverrunRpi >> 8 );
     *pucRegBuffer++ =
-          ( UCHAR )( failures & 0xFF );
+          ( UCHAR )( fifoOverrunRpi & 0xFF );
+    *pucRegBuffer++ =
+          ( UCHAR )( fifoOverrunAdxl >> 8 );
+    *pucRegBuffer++ =
+          ( UCHAR )( fifoOverrunAdxl & 0xFF );
   }
   else
   {
