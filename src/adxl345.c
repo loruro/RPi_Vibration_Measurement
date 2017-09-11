@@ -31,6 +31,7 @@
 
 #define ADXL345_REG_DEVID 0x00
 #define ADXL345_REG_POWER_CTL 0x2D
+#define ADXL345_REG_DATA_FORMAT 0x31
 #define ADXL345_REG_DATAX0 0x32
 #define ADXL345_REG_DATAX1 0x33
 #define ADXL345_REG_DATAY0 0x34
@@ -121,6 +122,34 @@ static int i2c_adxl345_linux_ioctl(
       rv = i2c_adxl345_read_register(dev, ADXL345_REG_POWER_CTL, reg_content);
       reg_content[0] |= 0x08;
       rv = i2c_adxl345_write_register(dev, ADXL345_REG_POWER_CTL, reg_content[0]);
+      break;
+
+    case ADXL345_SET_RANGE: ;
+      uint8_t range = *(uint8_t*)arg;
+      if (range >= 0 && range <= 3) {
+        rv = i2c_adxl345_read_register(dev, ADXL345_REG_DATA_FORMAT, reg_content);
+        reg_content[0] |= 0x08; // Set FULL_RES.
+        reg_content[0] &= 0xFC; // Zero range bits.
+        switch (range) {
+          case 0:
+            break;
+          
+          case 1:
+            reg_content[0] |= 0x01;
+            break;
+
+          case 2:
+            reg_content[0] |= 0x02;
+            break;
+
+          case 3:
+            reg_content[0] |= 0x03;
+            break;
+        }
+        rv = i2c_adxl345_write_register(dev, ADXL345_REG_DATA_FORMAT, reg_content[0]);
+      } else {
+        rv = -1;
+      }
       break;
 
     case ADXL345_READ_DATA_X:

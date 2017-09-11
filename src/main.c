@@ -52,7 +52,7 @@
 
 /* Global variables ***************************/
 #define FREQ 100
-#define BUFFER_LENGTH 20
+// #define BUFFER_LENGTH 20
 #define REG_INPUT_START 1
 #define REG_INPUT_NREGS (2+120+2)
 
@@ -159,7 +159,11 @@ rtems_task Task_Read_ADXL345(
   rv = ioctl(fd, ADXL345_START_MEASURE, NULL);
   RTEMS_CHECK_RV(rv, "adxl345 start measure");
 
-  uint8_t bufferSample = 0;
+  uint8_t range = 3; // 16 g.
+  rv = ioctl(fd, ADXL345_SET_RANGE, (void*)&range);
+  RTEMS_CHECK_RV(rv, "adxl345 set range");
+
+  // uint8_t bufferSample = 0;
   while (1) {
     rtems_rate_monotonic_period( period, rtems_clock_get_ticks_per_second() / 100 );
     float data[3];
