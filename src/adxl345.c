@@ -132,22 +132,7 @@ static int i2c_adxl345_linux_ioctl(
         rv = i2c_adxl345_read_register(dev, ADXL345_REG_DATA_FORMAT, reg_content);
         reg_content[0] |= 0x08; // Set FULL_RES.
         reg_content[0] &= 0xFC; // Zero range bits.
-        switch (range) {
-          case 0:
-            break;
-          
-          case 1:
-            reg_content[0] |= 0x01;
-            break;
-
-          case 2:
-            reg_content[0] |= 0x02;
-            break;
-
-          case 3:
-            reg_content[0] |= 0x03;
-            break;
-        }
+        reg_content[0] |= range; // Set range bits.
         rv = i2c_adxl345_write_register(dev, ADXL345_REG_DATA_FORMAT, reg_content[0]);
       } else {
         rv = -1;
