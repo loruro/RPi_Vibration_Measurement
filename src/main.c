@@ -157,6 +157,10 @@ rtems_task Task_Read_ADXL345(
   fd = open("/dev/i2c.adxl345", O_RDWR);
   RTEMS_CHECK_RV(rv, "Open /dev/i2c.adxl345");
 
+  uint8_t frequency = 0xD; // 800 Hz.
+  rv = ioctl(fd, ADXL345_SET_FREQUENCY, (void*)&frequency);
+  RTEMS_CHECK_RV(rv, "adxl345 set frequency");
+
   uint8_t range = 3; // 16 g.
   rv = ioctl(fd, ADXL345_SET_RANGE, (void*)&range);
   RTEMS_CHECK_RV(rv, "adxl345 set range");
@@ -188,7 +192,7 @@ rtems_task Task_Read_ADXL345(
       fifoY[fifoWriteIndex] = data[1];
       fifoZ[fifoWriteIndex] = data[2];
       if (fifoStored < FREQ) {
-        fifoStored += 1;
+        fifoStored++;
       } else {
         fifoOverrunRpi++;
       }

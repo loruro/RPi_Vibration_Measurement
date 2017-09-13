@@ -30,6 +30,7 @@
 #include "adxl345.h"
 
 #define ADXL345_REG_DEVID 0x00
+#define ADXL345_REG_BW_RATE 0x2C
 #define ADXL345_REG_POWER_CTL 0x2D
 #define ADXL345_REG_DATA_FORMAT 0x31
 #define ADXL345_REG_DATAX0 0x32
@@ -124,6 +125,18 @@ static int i2c_adxl345_linux_ioctl(
       rv = i2c_adxl345_read_register(dev, ADXL345_REG_POWER_CTL, reg_content);
       reg_content[0] |= 0x08;
       rv = i2c_adxl345_write_register(dev, ADXL345_REG_POWER_CTL, reg_content[0]);
+      break;
+
+    case ADXL345_SET_FREQUENCY: ;
+      uint8_t frequency = *(uint8_t*)arg;
+      if (frequency >= 0 && frequency <= 0xF) {
+        rv = i2c_adxl345_read_register(dev, ADXL345_REG_BW_RATE, reg_content);
+        reg_content[0] &= 0xF0; // Zero rate bits.
+        reg_content[0] |= frequency; // Set rate bits.
+        rv = i2c_adxl345_write_register(dev, ADXL345_REG_BW_RATE, reg_content[0]);
+      } else {
+        rv = -1;
+      }
       break;
 
     case ADXL345_SET_RANGE: ;
