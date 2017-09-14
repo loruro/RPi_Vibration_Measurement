@@ -54,7 +54,8 @@ xMBPortTimersInit( USHORT usTim1Timerout50us )
     ENTER_CRITICAL_SECTION();
 
     if (status == RTEMS_SUCCESSFUL) {
-        useconds = (uint32_t)usTim1Timerout50us * 50;
+        // Shorter timeouts can freeze whole system.
+        useconds = (uint32_t)usTim1Timerout50us * 125;
         return TRUE;
     } else {
         return FALSE;

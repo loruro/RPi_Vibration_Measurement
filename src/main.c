@@ -51,7 +51,7 @@
 #include "mcp9808.h"
 
 /* Global variables ***************************/
-#define FREQ 100
+#define FREQ 800
 // #define BUFFER_LENGTH 20
 #define REG_INPUT_START 1
 #define REG_INPUT_NREGS (2+120+2)
@@ -173,7 +173,7 @@ rtems_task Task_Read_ADXL345(
 
   // uint8_t bufferSample = 0;
   while (1) {
-    rtems_rate_monotonic_period( period, rtems_clock_get_ticks_per_second() / 4 );
+    rtems_rate_monotonic_period( period, rtems_clock_get_ticks_per_second() / 32 );
     float data[3];
     uint8_t fifoEntries;
     rv = ioctl(fd, ADXL345_READ_FIFO_ENTRIES, (void*)&fifoEntries);
@@ -389,6 +389,7 @@ rtems_task Init(
   rtems_task_start( id1, Task_Read_MCP9808, 1 );
   rtems_task_start( id2, Task_Read_ADXL345, 2 );
   rtems_task_start( id3, Task_Modbus, 3 );
+  LED_ON(); // Debug LED
 
   status = rtems_task_delete( RTEMS_SELF );
 }
