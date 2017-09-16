@@ -54,7 +54,8 @@ xMBPortTimersInit( USHORT usTim1Timerout50us )
     ENTER_CRITICAL_SECTION();
 
     if (status == RTEMS_SUCCESSFUL) {
-        // Shorter timeouts can freeze whole system.
+        // Should be 50, but shorter timeouts can freeze whole system. Why?!
+        // Modbus timeout interrupt and long periods of ADXL345 task are related to it.
         useconds = (uint32_t)usTim1Timerout50us * 125;
         return TRUE;
     } else {

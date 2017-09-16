@@ -73,6 +73,8 @@ uint32_t fifoStored = 0;
 uint32_t fifoWriteIndex = 0;
 uint32_t fifoReadIndex = 0;
 
+float temperature;
+
 /* Semaphore ***************************/
 rtems_id sem_id;
 /**************************************/
@@ -114,8 +116,7 @@ rtems_task Task_Read_MCP9808(
 
   while (1) {
     rtems_rate_monotonic_period( period, rtems_clock_get_ticks_per_second() / 4 );
-    float temp;
-    rv = ioctl(fd, MCP9808_READ_TEMP,(void*)&temp);
+    rv = ioctl(fd, MCP9808_READ_TEMP,(void*)&temperature);
     // printf("Temp: %f\n", temp); /***************/
     RTEMS_CHECK_RV(rv, "mcp9808 gpio set output");
     // rtems_printer printer;
@@ -259,6 +260,7 @@ eMBRegInputCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs )
         // Wait for the rest of fifo samples.
         rtems_task_wake_after(rtems_clock_get_ticks_per_second() * (20 - fifoStored) / FREQ);
       }
+      // TODO: Try without memcpy
       memcpy(&usRegInputBuf[REG_INPUT_INDEX_X], &fifoX[fifoReadIndex], sizeof(USHORT) * 40);
       memcpy(&usRegInputBuf[REG_INPUT_INDEX_Y], &fifoY[fifoReadIndex], sizeof(USHORT) * 40);
       memcpy(&usRegInputBuf[REG_INPUT_INDEX_Z], &fifoZ[fifoReadIndex], sizeof(USHORT) * 40);
@@ -267,6 +269,11 @@ eMBRegInputCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs )
         fifoReadIndex = 0;
       }
       fifoStored -= 20;
+    }
+    // Check if requested registers overlap registers with temperature data.
+    if (iRegIndex <= REG_INPUT_INDEX_TEMP + 1 && REG_INPUT_INDEX_TEMP <= iRegIndex + usNRegs) {
+      // TODO: Try without memcpy
+      memcpy(&usRegInputBuf[REG_INPUT_INDEX_TEMP], &temperature, sizeof(USHORT) * 2);
     }
     while( usNRegs > 0 )
     {
@@ -389,7 +396,7 @@ rtems_task Init(
   rtems_task_start( id1, Task_Read_MCP9808, 1 );
   rtems_task_start( id2, Task_Read_ADXL345, 2 );
   rtems_task_start( id3, Task_Modbus, 3 );
-  LED_ON(); // Debug LED
+  LED_INIT(); // Debug LED
 
   status = rtems_task_delete( RTEMS_SELF );
 }
