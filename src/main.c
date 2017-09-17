@@ -41,6 +41,7 @@
 #include <fcntl.h>
 #include <string.h>
 #include <math.h>
+#include <float.h>
 
 #include "bsp/i2c.h"
 #include <rtems/status-checks.h>
@@ -291,6 +292,8 @@ rtems_task Task_Processing(
   uint32_t samplesAmount = processingStep * frequency / 1000;
   while (1) {
     float rms[3] = {0};
+    float ppMin[3] = {FLT_MAX, FLT_MAX, FLT_MAX};
+    float ppMax[3] = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
     for(uint32_t i = 0; i < samplesAmount; ++i) {
       while (fifoStored == 0) { // Possibility of infinite loop!
         // Wait for the rest of fifo samples.
@@ -306,6 +309,14 @@ rtems_task Task_Processing(
       rms[1] += sample[1] * sample[1];
       rms[2] += sample[2] * sample[2];
 
+      // Peak-to-peak
+      if (sample[0] < ppMin[0]) {ppMin[0] = sample[0];}
+      if (sample[1] < ppMin[1]) {ppMin[1] = sample[1];}
+      if (sample[2] < ppMin[2]) {ppMin[2] = sample[2];}
+      if (sample[0] > ppMax[0]) {ppMax[0] = sample[0];}
+      if (sample[1] > ppMax[1]) {ppMax[1] = sample[1];}
+      if (sample[2] > ppMax[2]) {ppMax[2] = sample[2];}
+
       fifoReadIndex++;
       if (fifoReadIndex >= fifoUsedSize) {
         fifoReadIndex = 0;
@@ -320,6 +331,9 @@ rtems_task Task_Processing(
     fifoRMSX[fifoProcessedWriteIndex] = rms[0];
     fifoRMSY[fifoProcessedWriteIndex] = rms[1];
     fifoRMSZ[fifoProcessedWriteIndex] = rms[2];
+    fifoPPX[fifoProcessedWriteIndex] = ppMax[0] - ppMin[0];
+    fifoPPY[fifoProcessedWriteIndex] = ppMax[1] - ppMin[1];
+    fifoPPZ[fifoProcessedWriteIndex] = ppMax[2] - ppMin[2];
     if (fifoProcessedStored < fifoProcessedUsedSize) {
       fifoProcessedStored++;
     } else {
@@ -548,7 +562,7 @@ rtems_task Init(
 #define CONFIGURE_APPLICATION_NEEDS_CONSOLE_DRIVER
 #define CONFIGURE_APPLICATION_NEEDS_CLOCK_DRIVER
 
-// #define CONFIGURE_MICROSECONDS_PER_TICK  1000
+#define CONFIGURE_MICROSECONDS_PER_TICK  1000
 
 //#define CONFIGURE_MAXIMUM_TASKS             1
 
