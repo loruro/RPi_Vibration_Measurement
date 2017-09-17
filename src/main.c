@@ -40,6 +40,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <string.h>
+#include <math.h>
 
 #include "bsp/i2c.h"
 #include <rtems/status-checks.h>
@@ -51,27 +52,68 @@
 #include "mcp9808.h"
 
 /* Global variables ***************************/
-#define FREQ 800
+// #define FREQ 100
+#define FIFO_SIZE 480000 // 800 Hz for 10 minutes.
+#define FIFO_PROCESSED_SIZE 6000 // 10 Hz for 10 minutes.
 // #define BUFFER_LENGTH 20
 #define REG_INPUT_START 1
-#define REG_INPUT_NREGS (2+120+2)
+#define REG_INPUT_NREGS (2+120+120+24+2)
 
 #define REG_INPUT_INDEX_TIME 0
 #define REG_INPUT_INDEX_X 2
 #define REG_INPUT_INDEX_Y 42
 #define REG_INPUT_INDEX_Z 82
-#define REG_INPUT_INDEX_TEMP 122
+#define REG_INPUT_INDEX_VELOCITY_X 122
+#define REG_INPUT_INDEX_VELOCITY_Y 162
+#define REG_INPUT_INDEX_VELOCITY_Z 202
+#define REG_INPUT_INDEX_RMS_X 242
+#define REG_INPUT_INDEX_RMS_Y 244
+#define REG_INPUT_INDEX_RMS_Z 246
+#define REG_INPUT_INDEX_VRMS_X 248
+#define REG_INPUT_INDEX_VRMS_Y 250
+#define REG_INPUT_INDEX_VRMS_Z 252
+#define REG_INPUT_INDEX_PP_X 254
+#define REG_INPUT_INDEX_PP_Y 256
+#define REG_INPUT_INDEX_PP_Z 258
+#define REG_INPUT_INDEX_KURT_X 260
+#define REG_INPUT_INDEX_KURT_Y 262
+#define REG_INPUT_INDEX_KURT_Z 264
+#define REG_INPUT_INDEX_TEMP 266
 // #define REG_DISCRETE_START 1
 // #define REG_DISCRETE_NREGS 1
 // static USHORT   usRegInputStart = REG_INPUT_START;
 static USHORT usRegInputBuf[REG_INPUT_NREGS];
 
-float fifoX[FREQ];
-float fifoY[FREQ];
-float fifoZ[FREQ];
+uint16_t frequency = 800;
+uint32_t processingStep = 100;
+
+float fifoX[FIFO_SIZE];
+float fifoY[FIFO_SIZE];
+float fifoZ[FIFO_SIZE];
+float fifoRMSX[FIFO_PROCESSED_SIZE];
+float fifoRMSY[FIFO_PROCESSED_SIZE];
+float fifoRMSZ[FIFO_PROCESSED_SIZE];
+float fifoVRMSX[FIFO_PROCESSED_SIZE] = {0};
+float fifoVRMSY[FIFO_PROCESSED_SIZE] = {0};
+float fifoVRMSZ[FIFO_PROCESSED_SIZE] = {0};
+float fifoPPX[FIFO_PROCESSED_SIZE] = {0};
+float fifoPPY[FIFO_PROCESSED_SIZE] = {0};
+float fifoPPZ[FIFO_PROCESSED_SIZE] = {0};
+float fifoKurtX[FIFO_PROCESSED_SIZE] = {0};
+float fifoKurtY[FIFO_PROCESSED_SIZE] = {0};
+float fifoKurtZ[FIFO_PROCESSED_SIZE] = {0};
+
+// uint32_t fifoUsedSize = frequency; // RAW Live
+// uint32_t fifoUsedSize = processingStep * frequency / 200; // Processed Live
+uint32_t fifoUsedSize  = 400; // TESTING
 uint32_t fifoStored = 0;
 uint32_t fifoWriteIndex = 0;
 uint32_t fifoReadIndex = 0;
+
+uint32_t fifoProcessedUsedSize  = 5;
+uint32_t fifoProcessedStored = 0;
+uint32_t fifoProcessedWriteIndex = 0;
+uint32_t fifoProcessedReadIndex = 0;
 
 float temperature;
 
@@ -82,6 +124,7 @@ rtems_id sem_id;
 /* Test ******************************/
 uint16_t fifoOverrunRpi = 0;
 uint16_t fifoOverrunAdxl = 0;
+uint16_t fifoOverrunProcessed = 0;
 /**************************************/
 
 rtems_task Task_Read_MCP9808(
@@ -122,6 +165,7 @@ rtems_task Task_Read_MCP9808(
     // rtems_printer printer;
     // rtems_print_printer_printf( &printer );
     // rtems_rate_monotonic_report_statistics_with_plugin( &printer );
+    // rtems_cpu_usage_report(&printer);
   }
 
   rv = close(fd);
@@ -158,8 +202,22 @@ rtems_task Task_Read_ADXL345(
   fd = open("/dev/i2c.adxl345", O_RDWR);
   RTEMS_CHECK_RV(rv, "Open /dev/i2c.adxl345");
 
-  uint8_t frequency = 0xD; // 800 Hz.
-  rv = ioctl(fd, ADXL345_SET_FREQUENCY, (void*)&frequency);
+  uint8_t frequencyCode;
+  switch (frequency) {
+    case 100:
+      frequencyCode = 0xA;
+      break;
+
+    case 800:
+      frequencyCode = 0xD;
+      break;
+
+    default:
+      frequencyCode = 0xD;
+      printf("Frequency value error!\n");
+      break;
+  }
+  rv = ioctl(fd, ADXL345_SET_FREQUENCY, (void*)&frequencyCode);
   RTEMS_CHECK_RV(rv, "adxl345 set frequency");
 
   uint8_t range = 3; // 16 g.
@@ -174,7 +232,7 @@ rtems_task Task_Read_ADXL345(
 
   // uint8_t bufferSample = 0;
   while (1) {
-    rtems_rate_monotonic_period( period, rtems_clock_get_ticks_per_second() / 32 );
+    rtems_rate_monotonic_period( period, rtems_clock_get_ticks_per_second() / (frequency / 25) );
     float data[3];
     uint8_t fifoEntries;
     rv = ioctl(fd, ADXL345_READ_FIFO_ENTRIES, (void*)&fifoEntries);
@@ -192,13 +250,13 @@ rtems_task Task_Read_ADXL345(
       fifoX[fifoWriteIndex] = data[0];
       fifoY[fifoWriteIndex] = data[1];
       fifoZ[fifoWriteIndex] = data[2];
-      if (fifoStored < FREQ) {
+      if (fifoStored < fifoUsedSize) {
         fifoStored++;
       } else {
         fifoOverrunRpi++;
       }
       fifoWriteIndex++;
-      if (fifoWriteIndex >= FREQ) {
+      if (fifoWriteIndex >= fifoUsedSize) {
         fifoWriteIndex = 0;
       }
     }
@@ -224,6 +282,54 @@ rtems_task Task_Read_ADXL345(
 
   rv = close(fd);
   RTEMS_CHECK_RV(rv, "Close /dev/i2c.adxl345");
+}
+
+rtems_task Task_Processing(
+  rtems_task_argument unused
+)
+{
+  uint32_t samplesAmount = processingStep * frequency / 1000;
+  while (1) {
+    float rms[3] = {0};
+    for(uint32_t i = 0; i < samplesAmount; ++i) {
+      while (fifoStored == 0) { // Possibility of infinite loop!
+        // Wait for the rest of fifo samples.
+        rtems_task_wake_after(rtems_clock_get_ticks_per_second() / frequency);
+      }
+      float sample[3];
+      sample[0] = fifoX[fifoReadIndex];
+      sample[1] = fifoY[fifoReadIndex];
+      sample[2] = fifoZ[fifoReadIndex];
+
+      // RMS
+      rms[0] += sample[0] * sample[0];
+      rms[1] += sample[1] * sample[1];
+      rms[2] += sample[2] * sample[2];
+
+      fifoReadIndex++;
+      if (fifoReadIndex >= fifoUsedSize) {
+        fifoReadIndex = 0;
+      }
+      fifoStored--;
+    }
+    // RMS
+    rms[0] = sqrt(rms[0] / samplesAmount);
+    rms[1] = sqrt(rms[1] / samplesAmount);
+    rms[2] = sqrt(rms[2] / samplesAmount);
+
+    fifoRMSX[fifoProcessedWriteIndex] = rms[0];
+    fifoRMSY[fifoProcessedWriteIndex] = rms[1];
+    fifoRMSZ[fifoProcessedWriteIndex] = rms[2];
+    if (fifoProcessedStored < fifoProcessedUsedSize) {
+      fifoProcessedStored++;
+    } else {
+      fifoOverrunProcessed++;
+    }
+    fifoProcessedWriteIndex++;
+    if (fifoProcessedWriteIndex >= fifoProcessedUsedSize) {
+      fifoProcessedWriteIndex = 0;
+    }
+  }
 }
 
 rtems_task Task_Modbus(
@@ -258,14 +364,14 @@ eMBRegInputCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs )
     if (iRegIndex <= REG_INPUT_INDEX_Z + 19 && REG_INPUT_INDEX_X <= iRegIndex + usNRegs) {
       while (fifoStored < 20) { // Possibility of infinite loop!
         // Wait for the rest of fifo samples.
-        rtems_task_wake_after(rtems_clock_get_ticks_per_second() * (20 - fifoStored) / FREQ);
+        rtems_task_wake_after(rtems_clock_get_ticks_per_second() * (20 - fifoStored) / frequency);
       }
       // TODO: Try without memcpy
       memcpy(&usRegInputBuf[REG_INPUT_INDEX_X], &fifoX[fifoReadIndex], sizeof(USHORT) * 40);
       memcpy(&usRegInputBuf[REG_INPUT_INDEX_Y], &fifoY[fifoReadIndex], sizeof(USHORT) * 40);
       memcpy(&usRegInputBuf[REG_INPUT_INDEX_Z], &fifoZ[fifoReadIndex], sizeof(USHORT) * 40);
       fifoReadIndex += 20;
-      if (fifoReadIndex >= FREQ) {
+      if (fifoReadIndex >= fifoUsedSize) {
         fifoReadIndex = 0;
       }
       fifoStored -= 20;
@@ -275,6 +381,32 @@ eMBRegInputCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs )
       // TODO: Try without memcpy
       memcpy(&usRegInputBuf[REG_INPUT_INDEX_TEMP], &temperature, sizeof(USHORT) * 2);
     }
+    // Check if requested registers overlap registers with processed data.
+    if (iRegIndex <= REG_INPUT_INDEX_KURT_Z + 1 && REG_INPUT_INDEX_RMS_X <= iRegIndex + usNRegs) {
+      while (fifoProcessedStored < 1) { // Possibility of infinite loop!
+        // Wait for the rest of fifo samples.
+        rtems_task_wake_after(rtems_clock_get_ticks_per_second() * processingStep / 1000);
+      }
+      // TODO: Try without memcpy
+      memcpy(&usRegInputBuf[REG_INPUT_INDEX_RMS_X], &fifoRMSX[fifoProcessedReadIndex], sizeof(USHORT) * 2);
+      memcpy(&usRegInputBuf[REG_INPUT_INDEX_RMS_Y], &fifoRMSY[fifoProcessedReadIndex], sizeof(USHORT) * 2);
+      memcpy(&usRegInputBuf[REG_INPUT_INDEX_RMS_Z], &fifoRMSZ[fifoProcessedReadIndex], sizeof(USHORT) * 2);
+      memcpy(&usRegInputBuf[REG_INPUT_INDEX_VRMS_X], &fifoVRMSX[fifoProcessedReadIndex], sizeof(USHORT) * 2);
+      memcpy(&usRegInputBuf[REG_INPUT_INDEX_VRMS_Y], &fifoVRMSY[fifoProcessedReadIndex], sizeof(USHORT) * 2);
+      memcpy(&usRegInputBuf[REG_INPUT_INDEX_VRMS_Z], &fifoVRMSZ[fifoProcessedReadIndex], sizeof(USHORT) * 2);
+      memcpy(&usRegInputBuf[REG_INPUT_INDEX_PP_X], &fifoPPX[fifoProcessedReadIndex], sizeof(USHORT) * 2);
+      memcpy(&usRegInputBuf[REG_INPUT_INDEX_PP_Y], &fifoPPY[fifoProcessedReadIndex], sizeof(USHORT) * 2);
+      memcpy(&usRegInputBuf[REG_INPUT_INDEX_PP_Z], &fifoPPZ[fifoProcessedReadIndex], sizeof(USHORT) * 2);
+      memcpy(&usRegInputBuf[REG_INPUT_INDEX_KURT_X], &fifoKurtX[fifoProcessedReadIndex], sizeof(USHORT) * 2);
+      memcpy(&usRegInputBuf[REG_INPUT_INDEX_KURT_Y], &fifoKurtY[fifoProcessedReadIndex], sizeof(USHORT) * 2);
+      memcpy(&usRegInputBuf[REG_INPUT_INDEX_KURT_Z], &fifoKurtZ[fifoProcessedReadIndex], sizeof(USHORT) * 2);
+      fifoProcessedReadIndex++;
+      if (fifoProcessedReadIndex >= fifoProcessedUsedSize) {
+        fifoProcessedReadIndex = 0;
+      }
+      fifoProcessedStored--;
+    }
+
     while( usNRegs > 0 )
     {
       *pucRegBuffer++ =
@@ -296,6 +428,10 @@ eMBRegInputCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs )
           ( UCHAR )( fifoOverrunAdxl >> 8 );
     *pucRegBuffer++ =
           ( UCHAR )( fifoOverrunAdxl & 0xFF );
+    *pucRegBuffer++ =
+          ( UCHAR )( fifoOverrunProcessed >> 8 );
+    *pucRegBuffer++ =
+          ( UCHAR )( fifoOverrunProcessed & 0xFF );
   }
   else
   {
@@ -361,20 +497,25 @@ rtems_task Init(
   rv = rpi_i2c_register_bus("/dev/i2c", 400000);
   RTEMS_CHECK_RV(rv, "rpi_setup_i2c_bus");
 
-  rtems_id id1,id2,id3;
+  rtems_id idMCP9808, idADXL345, idModbus, idProcessing;
   rtems_task_create(
     rtems_build_name( 'T', 'A', '1', ' ' ), 2, RTEMS_MINIMUM_STACK_SIZE * 2, RTEMS_DEFAULT_MODES,
-    RTEMS_DEFAULT_ATTRIBUTES | RTEMS_FLOATING_POINT, &id1
+    RTEMS_DEFAULT_ATTRIBUTES | RTEMS_FLOATING_POINT, &idMCP9808
   );
 
   rtems_task_create(
     rtems_build_name( 'T', 'A', '2', ' ' ), 1, RTEMS_MINIMUM_STACK_SIZE * 2, RTEMS_DEFAULT_MODES,
-    RTEMS_DEFAULT_ATTRIBUTES | RTEMS_FLOATING_POINT, &id2
+    RTEMS_DEFAULT_ATTRIBUTES | RTEMS_FLOATING_POINT, &idADXL345
   );
   
   rtems_task_create(
     rtems_build_name( 'T', 'A', '3', ' ' ), 3, RTEMS_MINIMUM_STACK_SIZE * 2, RTEMS_DEFAULT_MODES,
-    RTEMS_DEFAULT_ATTRIBUTES, &id3
+    RTEMS_DEFAULT_ATTRIBUTES, &idModbus
+  );
+
+  rtems_task_create(
+    rtems_build_name( 'T', 'A', '4', ' ' ), 4, RTEMS_MINIMUM_STACK_SIZE * 2, RTEMS_DEFAULT_MODES,
+    RTEMS_DEFAULT_ATTRIBUTES | RTEMS_FLOATING_POINT, &idProcessing
   );
 
   /* Select either ASCII or RTU Mode. */
@@ -393,9 +534,10 @@ rtems_task Init(
   );
   assert( status == RTEMS_SUCCESSFUL );
 
-  rtems_task_start( id1, Task_Read_MCP9808, 1 );
-  rtems_task_start( id2, Task_Read_ADXL345, 2 );
-  rtems_task_start( id3, Task_Modbus, 3 );
+  rtems_task_start( idMCP9808, Task_Read_MCP9808, 0 );
+  rtems_task_start( idADXL345, Task_Read_ADXL345, 0 );
+  rtems_task_start( idModbus, Task_Modbus, 0 );
+  rtems_task_start( idProcessing, Task_Processing, 0 );
   LED_INIT(); // Debug LED
 
   status = rtems_task_delete( RTEMS_SELF );
