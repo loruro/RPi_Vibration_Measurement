@@ -167,6 +167,7 @@ rtems_task Task_Read_MCP9808(
     // rtems_print_printer_printf( &printer );
     // rtems_rate_monotonic_report_statistics_with_plugin( &printer );
     // rtems_cpu_usage_report(&printer);
+    // rtems_stack_checker_report_usage(&printer);
   }
 
   rv = close(fd);
@@ -611,6 +612,8 @@ rtems_task Init(
 #define CONFIGURE_MAXIMUM_PERIODS 10
 
 #define CONFIGURE_INIT_TASK_STACK_SIZE (32 * 1024)
+
+// #define CONFIGURE_STACK_CHECKER_ENABLED
 
 
 #define CONFIGURE_INIT

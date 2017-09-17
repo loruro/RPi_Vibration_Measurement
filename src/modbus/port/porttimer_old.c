@@ -18,6 +18,8 @@
  *
  * File: $Id: porttimer.c,v 1.1 2006/08/22 21:35:13 wolti Exp $
  */
+/* ----------------------- RTEMS includes --------------------------------*/
+#include <bsp/irq.h>
 /* ----------------------- Platform includes --------------------------------*/
 #include "port.h"
 
@@ -26,33 +28,35 @@
 #include "mbport.h"
 
 /* ----------------------- Static variables ---------------------------------*/
-rtems_id timerId;
-rtems_interval ticks;
+static uint32_t useconds;
+static bool enabled = false;
 
 /* ----------------------- Static functions ---------------------------------*/
-rtems_timer_service_routine prvvTIMERExpiredISR(rtems_id timer_id, void *user_data);
+static void prvvTIMERExpiredISR(void *arg);
 
 /* ----------------------- Start implementation -----------------------------*/
-inline uint32_t integerDivision(uint32_t dividend, uint32_t divisor) {
-    return (dividend + (divisor / 2)) / divisor;
-}
-
 BOOL
 xMBPortTimersInit( USHORT usTim1Timerout50us )
 {
     rtems_status_code status;
-    rtems_name timerName = rtems_build_name( 'M', 'B', 'T', 'M' );
 
     // xMBPortTimersInit() function is called inside critical section.
-    // This causes rtems_timer_create() to hang. To fix it, we exit
+    // This causes rtems_interrupt_handler_install() to hang. To fix it, we exit
     // critical section just for handler installation.
     EXIT_CRITICAL_SECTION();
-    status = rtems_timer_create(timerName, &timerId);
+    status = rtems_interrupt_handler_install(
+        BCM2835_IRQ_ID_GPU_TIMER_M1,
+        "ModbusTimer",
+        RTEMS_INTERRUPT_UNIQUE,
+        (rtems_interrupt_handler) prvvTIMERExpiredISR,
+        NULL
+    );
     ENTER_CRITICAL_SECTION();
 
     if (status == RTEMS_SUCCESSFUL) {
-        uint32_t a = rtems_clock_get_ticks_per_second() * usTim1Timerout50us;
-        ticks = integerDivision(a, 1000000 / 50);
+        // Should be 50, but shorter timeouts can freeze whole system. Why?!
+        // Modbus timeout interrupt and long periods of ADXL345 task are related to it.
+        useconds = (uint32_t)usTim1Timerout50us * 125;
         return TRUE;
     } else {
         return FALSE;
@@ -64,21 +68,29 @@ inline void
 vMBPortTimersEnable(  )
 {
     /* Enable the timer with the timeout passed to xMBPortTimersInit( ) */
-    rtems_timer_fire_after(timerId, ticks, prvvTIMERExpiredISR, NULL);
+    uint32_t next_cmp = BCM2835_REG(BCM2835_GPU_TIMER_CLO);
+    next_cmp += useconds; // Timer runs at 1 MHz.
+    BCM2835_REG(BCM2835_GPU_TIMER_C1) = next_cmp;
+    BCM2835_REG(BCM2835_GPU_TIMER_CS) = BCM2835_GPU_TIMER_CS_M1;
+    enabled = true;
 }
 
 inline void
 vMBPortTimersDisable(  )
 {
     /* Disable any pending timers. */
-    rtems_timer_cancel(timerId);
+    enabled = false;
 }
 
 /* Create an ISR which is called whenever the timer has expired. This function
  * must then call pxMBPortCBTimerExpired( ) to notify the protocol stack that
  * the timer has expired.
  */
-rtems_timer_service_routine prvvTIMERExpiredISR(rtems_id timer_id, void *user_data)
+static void prvvTIMERExpiredISR(void *arg)
 {
-    ( void )pxMBPortCBTimerExpired(  );
+    BCM2835_REG(BCM2835_GPU_TIMER_CS) = BCM2835_GPU_TIMER_CS_M1;
+    if (enabled) {
+        enabled = false;
+        ( void )pxMBPortCBTimerExpired(  );
+    }
 }
