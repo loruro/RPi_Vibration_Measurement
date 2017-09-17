@@ -294,6 +294,9 @@ rtems_task Task_Processing(
     float rms[3] = {0};
     float ppMin[3] = {FLT_MAX, FLT_MAX, FLT_MAX};
     float ppMax[3] = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
+    float average[3] = {0};
+    float cMoment[3] = {0};
+    float sDeviation[3] = {0};
     for(uint32_t i = 0; i < samplesAmount; ++i) {
       while (fifoStored == 0) { // Possibility of infinite loop!
         // Wait for the rest of fifo samples.
@@ -304,29 +307,49 @@ rtems_task Task_Processing(
       sample[1] = fifoY[fifoReadIndex];
       sample[2] = fifoZ[fifoReadIndex];
 
-      // RMS
-      rms[0] += sample[0] * sample[0];
-      rms[1] += sample[1] * sample[1];
-      rms[2] += sample[2] * sample[2];
-
-      // Peak-to-peak
-      if (sample[0] < ppMin[0]) {ppMin[0] = sample[0];}
-      if (sample[1] < ppMin[1]) {ppMin[1] = sample[1];}
-      if (sample[2] < ppMin[2]) {ppMin[2] = sample[2];}
-      if (sample[0] > ppMax[0]) {ppMax[0] = sample[0];}
-      if (sample[1] > ppMax[1]) {ppMax[1] = sample[1];}
-      if (sample[2] > ppMax[2]) {ppMax[2] = sample[2];}
+      for (uint8_t j = 0; j < 3; ++j) {
+        rms[j] += sample[j] * sample[j]; // RMS
+        if (sample[j] < ppMin[j]) {ppMin[j] = sample[j];} // Peak-to-peak
+        if (sample[j] > ppMax[j]) {ppMax[j] = sample[j];}
+        average[j] += sample[j]; // Kurtosis
+      }
 
       fifoReadIndex++;
-      if (fifoReadIndex >= fifoUsedSize) {
-        fifoReadIndex = 0;
-      }
       fifoStored--;
     }
-    // RMS
-    rms[0] = sqrt(rms[0] / samplesAmount);
-    rms[1] = sqrt(rms[1] / samplesAmount);
-    rms[2] = sqrt(rms[2] / samplesAmount);
+
+    for (uint8_t j = 0; j < 3; ++j) {
+      rms[j] = sqrt(rms[j] / samplesAmount); // RMS
+      average[j] /= samplesAmount; // Kurtosis
+    }
+
+    // Kurtosis
+    fifoReadIndex -= samplesAmount;
+    for(uint32_t i = 0; i < samplesAmount; ++i) {
+      float sample[3];
+      sample[0] = fifoX[fifoReadIndex];
+      sample[1] = fifoY[fifoReadIndex];
+      sample[2] = fifoZ[fifoReadIndex];
+
+      for (uint8_t j = 0; j < 3; ++j) {
+        float a = sample[j] - average[j];
+        a *= a;
+        sDeviation[j] += a;
+        a *= a;
+        cMoment[j] += a;
+      }
+      fifoReadIndex++;
+    }
+    if (fifoReadIndex >= fifoUsedSize) {
+      fifoReadIndex = 0;
+    }
+
+    // Kurtosis
+    for (uint8_t j = 0; j < 3; ++j) {
+      sDeviation[j] *= sDeviation[j];
+      cMoment[j] *= samplesAmount;
+      cMoment[j] /= sDeviation[j];
+    }
 
     fifoRMSX[fifoProcessedWriteIndex] = rms[0];
     fifoRMSY[fifoProcessedWriteIndex] = rms[1];
@@ -334,6 +357,9 @@ rtems_task Task_Processing(
     fifoPPX[fifoProcessedWriteIndex] = ppMax[0] - ppMin[0];
     fifoPPY[fifoProcessedWriteIndex] = ppMax[1] - ppMin[1];
     fifoPPZ[fifoProcessedWriteIndex] = ppMax[2] - ppMin[2];
+    fifoKurtX[fifoProcessedWriteIndex] = cMoment[0];
+    fifoKurtY[fifoProcessedWriteIndex] = cMoment[1];
+    fifoKurtZ[fifoProcessedWriteIndex] = cMoment[2];
     if (fifoProcessedStored < fifoProcessedUsedSize) {
       fifoProcessedStored++;
     } else {
