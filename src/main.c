@@ -91,6 +91,9 @@ uint32_t processingStep = 100;
 float fifoX[FIFO_SIZE];
 float fifoY[FIFO_SIZE];
 float fifoZ[FIFO_SIZE];
+float fifoVelocityX[FIFO_SIZE];
+float fifoVelocityY[FIFO_SIZE];
+float fifoVelocityZ[FIFO_SIZE];
 float fifoRMSX[FIFO_PROCESSED_SIZE];
 float fifoRMSY[FIFO_PROCESSED_SIZE];
 float fifoRMSZ[FIFO_PROCESSED_SIZE];
@@ -174,6 +177,14 @@ rtems_task Task_Read_MCP9808(
   RTEMS_CHECK_RV(rv, "Close /dev/i2c.mcp23008");
 }
 
+void iir(float *x, float *y, const float *b, const float *a) {
+  float sum = x[4] * b[0];
+  for (uint i = 1; i <= 4; ++i) {
+    sum += x[4 - i] * b[i] - y[4 - i] * a[i];
+  }
+  y[4] = sum;
+}
+
 rtems_task Task_Read_ADXL345(
   rtems_task_argument unused
 )
@@ -233,6 +244,14 @@ rtems_task Task_Read_ADXL345(
   RTEMS_CHECK_RV(rv, "adxl345 start measure");
 
   // uint8_t bufferSample = 0;
+  float a[5] = {1, -3.79479110307941, 5.40516686172617, -3.42474734727425, 0.814405997727279};
+  float b[5] = {0.902444456862944, -3.60977782745178, 5.41466674117766, -3.60977782745178, 0.902444456862944};
+  float iirIn[3][5] = {0};
+  float iirOut[3][5] = {0};
+  float average[3] = {0};
+  float averageIntegral[3] = {0};
+  float integral[3] = {0};
+  float counterTotal = 0;
   while (1) {
     rtems_rate_monotonic_period( period, rtems_clock_get_ticks_per_second() / (frequency / 25) );
     float data[3];
@@ -252,6 +271,27 @@ rtems_task Task_Read_ADXL345(
       fifoX[fifoWriteIndex] = data[0];
       fifoY[fifoWriteIndex] = data[1];
       fifoZ[fifoWriteIndex] = data[2];
+
+      float sample[3];
+      
+      for (uint8_t j = 0; j < 3; ++j) {
+        memmove(&iirIn[j][0], &iirIn[j][1], 4 * sizeof(float)); // Shift input
+        iirIn[j][4] = data[j];
+        iir(iirIn[j], iirOut[j], b, a); // IIR
+        sample[j] = iirOut[j][4];
+        memmove(&iirOut[j][0], &iirOut[j][1], 4 * sizeof(float)); // Shift output
+        average[j] = (average[j] * counterTotal + sample[j]) / (counterTotal + 1);
+        sample[j] -= average[j];
+        integral[j] += sample[j] / frequency;
+        averageIntegral[j] = (averageIntegral[j] * counterTotal + integral[j]) / (counterTotal + 1);
+        sample[j] = integral[j] - averageIntegral[j];
+        sample[j] *= 9806.65;
+      }
+      counterTotal++;
+      fifoVelocityX[fifoWriteIndex] = sample[0];
+      fifoVelocityY[fifoWriteIndex] = sample[1];
+      fifoVelocityZ[fifoWriteIndex] = sample[2];
+
       if (fifoStored < fifoUsedSize) {
         fifoStored++;
       } else {
