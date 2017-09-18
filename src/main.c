@@ -109,10 +109,15 @@ float fifoKurtZ[FIFO_PROCESSED_SIZE] = {0};
 
 // uint32_t fifoUsedSize = frequency; // RAW Live
 // uint32_t fifoUsedSize = processingStep * frequency / 200; // Processed Live
-uint32_t fifoUsedSize  = 400; // TESTING
+uint32_t fifoUsedSize  = 800; // TESTING
 uint32_t fifoStored = 0;
 uint32_t fifoWriteIndex = 0;
 uint32_t fifoReadIndex = 0;
+
+uint32_t fifoVelocityUsedSize  = 800; // TESTING
+uint32_t fifoVelocityStored = 0;
+uint32_t fifoVelocityWriteIndex = 0;
+uint32_t fifoVelocityReadIndex = 0;
 
 uint32_t fifoProcessedUsedSize  = 5;
 uint32_t fifoProcessedStored = 0;
@@ -128,6 +133,7 @@ rtems_id sem_id;
 /* Test ******************************/
 uint16_t fifoOverrunRpi = 0;
 uint16_t fifoOverrunAdxl = 0;
+uint16_t fifoOverrunVelocity = 0;
 uint16_t fifoOverrunProcessed = 0;
 /**************************************/
 
@@ -244,14 +250,6 @@ rtems_task Task_Read_ADXL345(
   RTEMS_CHECK_RV(rv, "adxl345 start measure");
 
   // uint8_t bufferSample = 0;
-  float a[5] = {1, -3.79479110307941, 5.40516686172617, -3.42474734727425, 0.814405997727279};
-  float b[5] = {0.902444456862944, -3.60977782745178, 5.41466674117766, -3.60977782745178, 0.902444456862944};
-  float iirIn[3][5] = {0};
-  float iirOut[3][5] = {0};
-  float average[3] = {0};
-  float averageIntegral[3] = {0};
-  float integral[3] = {0};
-  float counterTotal = 0;
   while (1) {
     rtems_rate_monotonic_period( period, rtems_clock_get_ticks_per_second() / (frequency / 25) );
     float data[3];
@@ -271,26 +269,6 @@ rtems_task Task_Read_ADXL345(
       fifoX[fifoWriteIndex] = data[0];
       fifoY[fifoWriteIndex] = data[1];
       fifoZ[fifoWriteIndex] = data[2];
-
-      float sample[3];
-      
-      for (uint8_t j = 0; j < 3; ++j) {
-        memmove(&iirIn[j][0], &iirIn[j][1], 4 * sizeof(float)); // Shift input
-        iirIn[j][4] = data[j];
-        iir(iirIn[j], iirOut[j], b, a); // IIR
-        sample[j] = iirOut[j][4];
-        memmove(&iirOut[j][0], &iirOut[j][1], 4 * sizeof(float)); // Shift output
-        average[j] = (average[j] * counterTotal + sample[j]) / (counterTotal + 1);
-        sample[j] -= average[j];
-        integral[j] += sample[j] / frequency;
-        averageIntegral[j] = (averageIntegral[j] * counterTotal + integral[j]) / (counterTotal + 1);
-        sample[j] = integral[j] - averageIntegral[j];
-        sample[j] *= 9806.65;
-      }
-      counterTotal++;
-      fifoVelocityX[fifoWriteIndex] = sample[0];
-      fifoVelocityY[fifoWriteIndex] = sample[1];
-      fifoVelocityZ[fifoWriteIndex] = sample[2];
 
       if (fifoStored < fifoUsedSize) {
         fifoStored++;
@@ -324,6 +302,65 @@ rtems_task Task_Read_ADXL345(
 
   rv = close(fd);
   RTEMS_CHECK_RV(rv, "Close /dev/i2c.adxl345");
+}
+
+rtems_task Task_Velocity(
+  rtems_task_argument unused
+)
+{
+  float a[5] = {1, -3.79479110307941, 5.40516686172617, -3.42474734727425, 0.814405997727279};
+  float b[5] = {0.902444456862944, -3.60977782745178, 5.41466674117766, -3.60977782745178, 0.902444456862944};
+  float iirIn[3][5] = {0};
+  float iirOut[3][5] = {0};
+  float average[3] = {0};
+  float averageIntegral[3] = {0};
+  float integral[3] = {0};
+  float counterTotal = 0;
+  while (1) {
+    while (fifoStored == 0) { // Possibility of infinite loop!
+      // Wait for the rest of fifo samples.
+      rtems_task_wake_after(rtems_clock_get_ticks_per_second() / frequency);
+    }
+    float data[3];
+    data[0] = fifoX[fifoReadIndex];
+    data[1] = fifoY[fifoReadIndex];
+    data[2] = fifoZ[fifoReadIndex];
+    fifoReadIndex++;
+    fifoStored--;
+    if (fifoReadIndex >= fifoUsedSize) {
+      fifoReadIndex = 0;
+    }
+
+    float sample[3];
+
+    for (uint8_t i = 0; i < 3; ++i) {
+      memmove(&iirIn[i][0], &iirIn[i][1], 4 * sizeof(float)); // Shift input
+      iirIn[i][4] = data[i];
+      iir(iirIn[i], iirOut[i], b, a); // IIR
+      sample[i] = iirOut[i][4];
+      memmove(&iirOut[i][0], &iirOut[i][1], 4 * sizeof(float)); // Shift output
+      average[i] = (average[i] * counterTotal + sample[i]) / (counterTotal + 1);
+      sample[i] -= average[i];
+      integral[i] += sample[i] / frequency;
+      averageIntegral[i] = (averageIntegral[i] * counterTotal + integral[i]) / (counterTotal + 1);
+      sample[i] = integral[i] - averageIntegral[i];
+      sample[i] *= 9806.65;
+    }
+    counterTotal++;
+
+    fifoVelocityX[fifoVelocityWriteIndex] = sample[0];
+    fifoVelocityY[fifoVelocityWriteIndex] = sample[1];
+    fifoVelocityZ[fifoVelocityWriteIndex] = sample[2];
+    if (fifoVelocityStored < fifoVelocityUsedSize) {
+      fifoVelocityStored++;
+    } else {
+      fifoOverrunVelocity++;
+    }
+    fifoVelocityWriteIndex++;
+    if (fifoVelocityWriteIndex >= fifoVelocityUsedSize) {
+      fifoVelocityWriteIndex = 0;
+    }
+  }
 }
 
 rtems_task Task_Processing(
@@ -578,7 +615,7 @@ rtems_task Init(
   rv = rpi_i2c_register_bus("/dev/i2c", 400000);
   RTEMS_CHECK_RV(rv, "rpi_setup_i2c_bus");
 
-  rtems_id idMCP9808, idADXL345, idModbus, idProcessing;
+  rtems_id idMCP9808, idADXL345, idModbus, idProcessing, idVelocity;
   rtems_task_create(
     rtems_build_name( 'T', 'A', '1', ' ' ), 2, RTEMS_MINIMUM_STACK_SIZE * 2, RTEMS_DEFAULT_MODES,
     RTEMS_DEFAULT_ATTRIBUTES | RTEMS_FLOATING_POINT, &idMCP9808
@@ -595,8 +632,13 @@ rtems_task Init(
   );
 
   rtems_task_create(
-    rtems_build_name( 'T', 'A', '4', ' ' ), 4, RTEMS_MINIMUM_STACK_SIZE * 2, RTEMS_DEFAULT_MODES,
+    rtems_build_name( 'T', 'A', '4', ' ' ), 5, RTEMS_MINIMUM_STACK_SIZE * 2, RTEMS_DEFAULT_MODES,
     RTEMS_DEFAULT_ATTRIBUTES | RTEMS_FLOATING_POINT, &idProcessing
+  );
+
+  rtems_task_create(
+    rtems_build_name( 'T', 'A', '5', ' ' ), 4, RTEMS_MINIMUM_STACK_SIZE * 2, RTEMS_DEFAULT_MODES,
+    RTEMS_DEFAULT_ATTRIBUTES | RTEMS_FLOATING_POINT, &idVelocity
   );
 
   /* Select either ASCII or RTU Mode. */
@@ -619,6 +661,7 @@ rtems_task Init(
   rtems_task_start( idADXL345, Task_Read_ADXL345, 0 );
   rtems_task_start( idModbus, Task_Modbus, 0 );
   rtems_task_start( idProcessing, Task_Processing, 0 );
+  rtems_task_start( idVelocity, Task_Velocity, 0 );
   LED_INIT(); // Debug LED
 
   status = rtems_task_delete( RTEMS_SELF );
