@@ -27,6 +27,8 @@
   ******************************************************************************
   */
 
+// TODO: Cleanup!!!
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -97,22 +99,24 @@ float fifoVelocityZ[FIFO_SIZE];
 float fifoRMSX[FIFO_PROCESSED_SIZE];
 float fifoRMSY[FIFO_PROCESSED_SIZE];
 float fifoRMSZ[FIFO_PROCESSED_SIZE];
-float fifoVRMSX[FIFO_PROCESSED_SIZE] = {0};
-float fifoVRMSY[FIFO_PROCESSED_SIZE] = {0};
-float fifoVRMSZ[FIFO_PROCESSED_SIZE] = {0};
-float fifoPPX[FIFO_PROCESSED_SIZE] = {0};
-float fifoPPY[FIFO_PROCESSED_SIZE] = {0};
-float fifoPPZ[FIFO_PROCESSED_SIZE] = {0};
-float fifoKurtX[FIFO_PROCESSED_SIZE] = {0};
-float fifoKurtY[FIFO_PROCESSED_SIZE] = {0};
-float fifoKurtZ[FIFO_PROCESSED_SIZE] = {0};
+float fifoVRMSX[FIFO_PROCESSED_SIZE];
+float fifoVRMSY[FIFO_PROCESSED_SIZE];
+float fifoVRMSZ[FIFO_PROCESSED_SIZE];
+float fifoPPX[FIFO_PROCESSED_SIZE];
+float fifoPPY[FIFO_PROCESSED_SIZE];
+float fifoPPZ[FIFO_PROCESSED_SIZE];
+float fifoKurtX[FIFO_PROCESSED_SIZE];
+float fifoKurtY[FIFO_PROCESSED_SIZE];
+float fifoKurtZ[FIFO_PROCESSED_SIZE];
 
 // uint32_t fifoUsedSize = frequency; // RAW Live
 // uint32_t fifoUsedSize = processingStep * frequency / 200; // Processed Live
 uint32_t fifoUsedSize  = 800; // TESTING
-uint32_t fifoStored = 0;
+uint32_t fifoStoredA = 0;
+uint32_t fifoStoredB = 0;
 uint32_t fifoWriteIndex = 0;
-uint32_t fifoReadIndex = 0;
+uint32_t fifoReadAIndex = 0;
+uint32_t fifoReadBIndex = 0;
 
 uint32_t fifoVelocityUsedSize  = 800; // TESTING
 uint32_t fifoVelocityStored = 0;
@@ -131,8 +135,9 @@ rtems_id sem_id;
 /**************************************/
 
 /* Test ******************************/
-uint16_t fifoOverrunRpi = 0;
 uint16_t fifoOverrunAdxl = 0;
+uint16_t fifoOverrunRawA = 0;
+uint16_t fifoOverrunRawB = 0;
 uint16_t fifoOverrunVelocity = 0;
 uint16_t fifoOverrunProcessed = 0;
 /**************************************/
@@ -177,6 +182,12 @@ rtems_task Task_Read_MCP9808(
     // rtems_rate_monotonic_report_statistics_with_plugin( &printer );
     // rtems_cpu_usage_report(&printer);
     // rtems_stack_checker_report_usage(&printer);
+
+    // printf("fifoOverrunAdxl %d\n", fifoOverrunAdxl);
+    // printf("fifoOverrunRawA %d\n", fifoOverrunRawA);
+    // printf("fifoOverrunRawB %d\n", fifoOverrunRawB);
+    // printf("fifoOverrunVelocity %d\n", fifoOverrunVelocity);
+    // printf("fifoOverrunProcessed %d\n", fifoOverrunProcessed);
   }
 
   rv = close(fd);
@@ -270,10 +281,15 @@ rtems_task Task_Read_ADXL345(
       fifoY[fifoWriteIndex] = data[1];
       fifoZ[fifoWriteIndex] = data[2];
 
-      if (fifoStored < fifoUsedSize) {
-        fifoStored++;
+      if (fifoStoredA < fifoUsedSize) {
+        fifoStoredA++;
       } else {
-        fifoOverrunRpi++;
+        fifoOverrunRawA++;
+      }
+      if (fifoStoredB < fifoUsedSize) {
+        fifoStoredB++;
+      } else {
+        fifoOverrunRawB++;
       }
       fifoWriteIndex++;
       if (fifoWriteIndex >= fifoUsedSize) {
@@ -304,10 +320,12 @@ rtems_task Task_Read_ADXL345(
   RTEMS_CHECK_RV(rv, "Close /dev/i2c.adxl345");
 }
 
-rtems_task Task_Velocity(
+rtems_task Task_Processing(
   rtems_task_argument unused
 )
 {
+  uint32_t samplesAmount = processingStep * frequency / 1000;
+  // Velocity
   float a[5] = {1, -3.79479110307941, 5.40516686172617, -3.42474734727425, 0.814405997727279};
   float b[5] = {0.902444456862944, -3.60977782745178, 5.41466674117766, -3.60977782745178, 0.902444456862944};
   float iirIn[3][5] = {0};
@@ -315,123 +333,108 @@ rtems_task Task_Velocity(
   float average[3] = {0};
   float averageIntegral[3] = {0};
   float integral[3] = {0};
-  float counterTotal = 0;
-  while (1) {
-    while (fifoStored == 0) { // Possibility of infinite loop!
-      // Wait for the rest of fifo samples.
-      rtems_task_wake_after(rtems_clock_get_ticks_per_second() / frequency);
-    }
-    float data[3];
-    data[0] = fifoX[fifoReadIndex];
-    data[1] = fifoY[fifoReadIndex];
-    data[2] = fifoZ[fifoReadIndex];
-    fifoReadIndex++;
-    fifoStored--;
-    if (fifoReadIndex >= fifoUsedSize) {
-      fifoReadIndex = 0;
-    }
-
-    float sample[3];
-
-    for (uint8_t i = 0; i < 3; ++i) {
-      memmove(&iirIn[i][0], &iirIn[i][1], 4 * sizeof(float)); // Shift input
-      iirIn[i][4] = data[i];
-      iir(iirIn[i], iirOut[i], b, a); // IIR
-      sample[i] = iirOut[i][4];
-      memmove(&iirOut[i][0], &iirOut[i][1], 4 * sizeof(float)); // Shift output
-      average[i] = (average[i] * counterTotal + sample[i]) / (counterTotal + 1);
-      sample[i] -= average[i];
-      integral[i] += sample[i] / frequency;
-      averageIntegral[i] = (averageIntegral[i] * counterTotal + integral[i]) / (counterTotal + 1);
-      sample[i] = integral[i] - averageIntegral[i];
-      sample[i] *= 9806.65;
-    }
-    counterTotal++;
-
-    fifoVelocityX[fifoVelocityWriteIndex] = sample[0];
-    fifoVelocityY[fifoVelocityWriteIndex] = sample[1];
-    fifoVelocityZ[fifoVelocityWriteIndex] = sample[2];
-    if (fifoVelocityStored < fifoVelocityUsedSize) {
-      fifoVelocityStored++;
-    } else {
-      fifoOverrunVelocity++;
-    }
-    fifoVelocityWriteIndex++;
-    if (fifoVelocityWriteIndex >= fifoVelocityUsedSize) {
-      fifoVelocityWriteIndex = 0;
-    }
-  }
-}
-
-rtems_task Task_Processing(
-  rtems_task_argument unused
-)
-{
-  uint32_t samplesAmount = processingStep * frequency / 1000;
+  uint32_t counterTotal = 0;
   while (1) {
     float rms[3] = {0};
+    float vrms[3] = {0};
     float ppMin[3] = {FLT_MAX, FLT_MAX, FLT_MAX};
     float ppMax[3] = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
-    float average[3] = {0};
+    float averageKurt[3] = {0};
     float cMoment[3] = {0};
     float sDeviation[3] = {0};
     for(uint32_t i = 0; i < samplesAmount; ++i) {
-      while (fifoStored == 0) { // Possibility of infinite loop!
+      while (fifoStoredB == 0) { // Possibility of infinite loop!
         // Wait for the rest of fifo samples.
         rtems_task_wake_after(rtems_clock_get_ticks_per_second() / frequency);
       }
       float sample[3];
-      sample[0] = fifoX[fifoReadIndex];
-      sample[1] = fifoY[fifoReadIndex];
-      sample[2] = fifoZ[fifoReadIndex];
+      sample[0] = fifoX[fifoReadBIndex];
+      sample[1] = fifoY[fifoReadBIndex];
+      sample[2] = fifoZ[fifoReadBIndex];
 
+      // Velocity processing
+      float velocitySample[3];
       for (uint8_t j = 0; j < 3; ++j) {
-        rms[j] += sample[j] * sample[j]; // RMS
-        if (sample[j] < ppMin[j]) {ppMin[j] = sample[j];} // Peak-to-peak
-        if (sample[j] > ppMax[j]) {ppMax[j] = sample[j];}
-        average[j] += sample[j]; // Kurtosis
+        memmove(&iirIn[j][0], &iirIn[j][1], 4 * sizeof(float)); // Shift input
+        iirIn[j][4] = sample[j];
+        iir(iirIn[j], iirOut[j], b, a); // IIR
+        velocitySample[j] = iirOut[j][4];
+        memmove(&iirOut[j][0], &iirOut[j][1], 4 * sizeof(float)); // Shift output
+        average[j] = (average[j] * counterTotal + velocitySample[j]) / (counterTotal + 1);
+        velocitySample[j] -= average[j];
+        integral[j] += velocitySample[j] / frequency;
+        averageIntegral[j] = (averageIntegral[j] * counterTotal + integral[j]) / (counterTotal + 1);
+        velocitySample[j] = integral[j] - averageIntegral[j];
+        velocitySample[j] *= 9806.65;
+      }
+      counterTotal++;
+
+      fifoVelocityX[fifoVelocityWriteIndex] = velocitySample[0];
+      fifoVelocityY[fifoVelocityWriteIndex] = velocitySample[1];
+      fifoVelocityZ[fifoVelocityWriteIndex] = velocitySample[2];
+      if (fifoVelocityStored < fifoVelocityUsedSize) {
+        fifoVelocityStored++;
+      } else {
+        fifoOverrunVelocity++;
+      }
+      fifoVelocityWriteIndex++;
+      if (fifoVelocityWriteIndex >= fifoVelocityUsedSize) {
+        fifoVelocityWriteIndex = 0;
       }
 
-      fifoReadIndex++;
-      fifoStored--;
+      // Other processing
+      for (uint8_t j = 0; j < 3; ++j) {
+        rms[j] += sample[j] * sample[j]; // RMS
+        vrms[j] += velocitySample[j] * velocitySample[j]; // VRMS
+        if (sample[j] < ppMin[j]) {ppMin[j] = sample[j];} // Peak-to-peak
+        if (sample[j] > ppMax[j]) {ppMax[j] = sample[j];}
+        averageKurt[j] += sample[j]; // Kurtosis
+      }
+
+      fifoReadBIndex++;
+      fifoStoredB--;
     }
 
-    for (uint8_t j = 0; j < 3; ++j) {
-      rms[j] = sqrt(rms[j] / samplesAmount); // RMS
-      average[j] /= samplesAmount; // Kurtosis
+    for (uint8_t i = 0; i < 3; ++i) {
+      rms[i] = sqrt(rms[i] / samplesAmount); // RMS
+      vrms[i] = sqrt(vrms[i] / samplesAmount); // VRMS
+      averageKurt[i] /= samplesAmount; // Kurtosis
     }
 
     // Kurtosis
-    fifoReadIndex -= samplesAmount;
+    fifoReadBIndex -= samplesAmount;
     for(uint32_t i = 0; i < samplesAmount; ++i) {
       float sample[3];
-      sample[0] = fifoX[fifoReadIndex];
-      sample[1] = fifoY[fifoReadIndex];
-      sample[2] = fifoZ[fifoReadIndex];
+      sample[0] = fifoX[fifoReadBIndex];
+      sample[1] = fifoY[fifoReadBIndex];
+      sample[2] = fifoZ[fifoReadBIndex];
 
       for (uint8_t j = 0; j < 3; ++j) {
-        float a = sample[j] - average[j];
+        float a = sample[j] - averageKurt[j];
         a *= a;
         sDeviation[j] += a;
         a *= a;
         cMoment[j] += a;
       }
-      fifoReadIndex++;
+      fifoReadBIndex++;
     }
-    if (fifoReadIndex >= fifoUsedSize) {
-      fifoReadIndex = 0;
+    if (fifoReadBIndex >= fifoUsedSize) {
+      fifoReadBIndex = 0;
     }
 
     // Kurtosis
-    for (uint8_t j = 0; j < 3; ++j) {
-      sDeviation[j] *= sDeviation[j];
-      cMoment[j] *= samplesAmount;
-      cMoment[j] /= sDeviation[j];
+    for (uint8_t i = 0; i < 3; ++i) {
+      sDeviation[i] *= sDeviation[i];
+      cMoment[i] *= samplesAmount;
+      cMoment[i] /= sDeviation[i];
     }
 
     fifoRMSX[fifoProcessedWriteIndex] = rms[0];
     fifoRMSY[fifoProcessedWriteIndex] = rms[1];
     fifoRMSZ[fifoProcessedWriteIndex] = rms[2];
+    fifoVRMSX[fifoProcessedWriteIndex] = vrms[0];
+    fifoVRMSY[fifoProcessedWriteIndex] = vrms[1];
+    fifoVRMSZ[fifoProcessedWriteIndex] = vrms[2];
     fifoPPX[fifoProcessedWriteIndex] = ppMax[0] - ppMin[0];
     fifoPPY[fifoProcessedWriteIndex] = ppMax[1] - ppMin[1];
     fifoPPZ[fifoProcessedWriteIndex] = ppMax[2] - ppMin[2];
@@ -478,26 +481,37 @@ eMBRegInputCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs )
 
     // rtems_semaphore_obtain(sem_id, RTEMS_WAIT, RTEMS_NO_TIMEOUT);
 
-    // Check if requested registers overlap registers with acceleration data.
+    // Check if requested registers overlap registers with raw data.
     if (iRegIndex <= REG_INPUT_INDEX_Z + 19 && REG_INPUT_INDEX_X <= iRegIndex + usNRegs) {
-      while (fifoStored < 20) { // Possibility of infinite loop!
+      while (fifoStoredA < 20) { // Possibility of infinite loop!
         // Wait for the rest of fifo samples.
-        rtems_task_wake_after(rtems_clock_get_ticks_per_second() * (20 - fifoStored) / frequency);
+        rtems_task_wake_after(rtems_clock_get_ticks_per_second() * (20 - fifoStoredA) / frequency);
       }
       // TODO: Try without memcpy
-      memcpy(&usRegInputBuf[REG_INPUT_INDEX_X], &fifoX[fifoReadIndex], sizeof(USHORT) * 40);
-      memcpy(&usRegInputBuf[REG_INPUT_INDEX_Y], &fifoY[fifoReadIndex], sizeof(USHORT) * 40);
-      memcpy(&usRegInputBuf[REG_INPUT_INDEX_Z], &fifoZ[fifoReadIndex], sizeof(USHORT) * 40);
-      fifoReadIndex += 20;
-      if (fifoReadIndex >= fifoUsedSize) {
-        fifoReadIndex = 0;
+      memcpy(&usRegInputBuf[REG_INPUT_INDEX_X], &fifoX[fifoReadAIndex], sizeof(USHORT) * 40);
+      memcpy(&usRegInputBuf[REG_INPUT_INDEX_Y], &fifoY[fifoReadAIndex], sizeof(USHORT) * 40);
+      memcpy(&usRegInputBuf[REG_INPUT_INDEX_Z], &fifoZ[fifoReadAIndex], sizeof(USHORT) * 40);
+      fifoReadAIndex += 20;
+      if (fifoReadAIndex >= fifoUsedSize) {
+        fifoReadAIndex = 0;
       }
-      fifoStored -= 20;
+      fifoStoredA -= 20;
     }
-    // Check if requested registers overlap registers with temperature data.
-    if (iRegIndex <= REG_INPUT_INDEX_TEMP + 1 && REG_INPUT_INDEX_TEMP <= iRegIndex + usNRegs) {
+    // Check if requested registers overlap registers with velocity data.
+    if (iRegIndex <= REG_INPUT_INDEX_VELOCITY_Z + 19 && REG_INPUT_INDEX_VELOCITY_X <= iRegIndex + usNRegs) {
+      while (fifoVelocityStored < 20) { // Possibility of infinite loop!
+        // Wait for the rest of fifo samples.
+        rtems_task_wake_after(rtems_clock_get_ticks_per_second() * (20 - fifoVelocityStored) / frequency);
+      }
       // TODO: Try without memcpy
-      memcpy(&usRegInputBuf[REG_INPUT_INDEX_TEMP], &temperature, sizeof(USHORT) * 2);
+      memcpy(&usRegInputBuf[REG_INPUT_INDEX_VELOCITY_X], &fifoVelocityX[fifoVelocityReadIndex], sizeof(USHORT) * 40);
+      memcpy(&usRegInputBuf[REG_INPUT_INDEX_VELOCITY_Y], &fifoVelocityY[fifoVelocityReadIndex], sizeof(USHORT) * 40);
+      memcpy(&usRegInputBuf[REG_INPUT_INDEX_VELOCITY_Z], &fifoVelocityZ[fifoVelocityReadIndex], sizeof(USHORT) * 40);
+      fifoVelocityReadIndex += 20;
+      if (fifoVelocityReadIndex >= fifoVelocityUsedSize) {
+        fifoVelocityReadIndex = 0;
+      }
+      fifoVelocityStored -= 20;
     }
     // Check if requested registers overlap registers with processed data.
     if (iRegIndex <= REG_INPUT_INDEX_KURT_Z + 1 && REG_INPUT_INDEX_RMS_X <= iRegIndex + usNRegs) {
@@ -524,6 +538,11 @@ eMBRegInputCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs )
       }
       fifoProcessedStored--;
     }
+    // Check if requested registers overlap registers with temperature data.
+    if (iRegIndex <= REG_INPUT_INDEX_TEMP + 1 && REG_INPUT_INDEX_TEMP <= iRegIndex + usNRegs) {
+      // TODO: Try without memcpy
+      memcpy(&usRegInputBuf[REG_INPUT_INDEX_TEMP], &temperature, sizeof(USHORT) * 2);
+    }
 
     while( usNRegs > 0 )
     {
@@ -539,13 +558,21 @@ eMBRegInputCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs )
   else if (usAddress == 1000) // Test
   {
     *pucRegBuffer++ =
-          ( UCHAR )( fifoOverrunRpi >> 8 );
-    *pucRegBuffer++ =
-          ( UCHAR )( fifoOverrunRpi & 0xFF );
-    *pucRegBuffer++ =
           ( UCHAR )( fifoOverrunAdxl >> 8 );
     *pucRegBuffer++ =
           ( UCHAR )( fifoOverrunAdxl & 0xFF );
+    *pucRegBuffer++ =
+          ( UCHAR )( fifoOverrunRawA >> 8 );
+    *pucRegBuffer++ =
+          ( UCHAR )( fifoOverrunRawA & 0xFF );
+    *pucRegBuffer++ =
+          ( UCHAR )( fifoOverrunRawB >> 8 );
+    *pucRegBuffer++ =
+          ( UCHAR )( fifoOverrunRawB & 0xFF );
+    *pucRegBuffer++ =
+          ( UCHAR )( fifoOverrunVelocity >> 8 );
+    *pucRegBuffer++ =
+          ( UCHAR )( fifoOverrunVelocity & 0xFF );
     *pucRegBuffer++ =
           ( UCHAR )( fifoOverrunProcessed >> 8 );
     *pucRegBuffer++ =
@@ -615,7 +642,7 @@ rtems_task Init(
   rv = rpi_i2c_register_bus("/dev/i2c", 400000);
   RTEMS_CHECK_RV(rv, "rpi_setup_i2c_bus");
 
-  rtems_id idMCP9808, idADXL345, idModbus, idProcessing, idVelocity;
+  rtems_id idMCP9808, idADXL345, idModbus, idProcessing;
   rtems_task_create(
     rtems_build_name( 'T', 'A', '1', ' ' ), 2, RTEMS_MINIMUM_STACK_SIZE * 2, RTEMS_DEFAULT_MODES,
     RTEMS_DEFAULT_ATTRIBUTES | RTEMS_FLOATING_POINT, &idMCP9808
@@ -632,13 +659,8 @@ rtems_task Init(
   );
 
   rtems_task_create(
-    rtems_build_name( 'T', 'A', '4', ' ' ), 5, RTEMS_MINIMUM_STACK_SIZE * 2, RTEMS_DEFAULT_MODES,
+    rtems_build_name( 'T', 'A', '4', ' ' ), 4, RTEMS_MINIMUM_STACK_SIZE * 2, RTEMS_DEFAULT_MODES,
     RTEMS_DEFAULT_ATTRIBUTES | RTEMS_FLOATING_POINT, &idProcessing
-  );
-
-  rtems_task_create(
-    rtems_build_name( 'T', 'A', '5', ' ' ), 4, RTEMS_MINIMUM_STACK_SIZE * 2, RTEMS_DEFAULT_MODES,
-    RTEMS_DEFAULT_ATTRIBUTES | RTEMS_FLOATING_POINT, &idVelocity
   );
 
   /* Select either ASCII or RTU Mode. */
@@ -661,7 +683,6 @@ rtems_task Init(
   rtems_task_start( idADXL345, Task_Read_ADXL345, 0 );
   rtems_task_start( idModbus, Task_Modbus, 0 );
   rtems_task_start( idProcessing, Task_Processing, 0 );
-  rtems_task_start( idVelocity, Task_Velocity, 0 );
   LED_INIT(); // Debug LED
 
   status = rtems_task_delete( RTEMS_SELF );
