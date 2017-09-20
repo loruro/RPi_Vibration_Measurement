@@ -129,6 +129,8 @@ uint32_t fifoProcessedWriteIndex = 0;
 uint32_t fifoProcessedReadIndex = 0;
 
 float temperature;
+bool adxlFlag = true;
+bool processingFlag = true;
 
 /* Semaphore ***************************/
 rtems_id sem_id;
@@ -228,27 +230,9 @@ rtems_task Task_Read_ADXL345(
        );
   RTEMS_CHECK_RV(rv, "i2c_dev_register_adxl345");
 
-  /* Open the mcp9808 device file */
+  /* Open the adxl345 device file */
   fd = open("/dev/i2c.adxl345", O_RDWR);
   RTEMS_CHECK_RV(rv, "Open /dev/i2c.adxl345");
-
-  uint8_t frequencyCode;
-  switch (frequency) {
-    case 100:
-      frequencyCode = 0xA;
-      break;
-
-    case 800:
-      frequencyCode = 0xD;
-      break;
-
-    default:
-      frequencyCode = 0xD;
-      printf("Frequency value error!\n");
-      break;
-  }
-  rv = ioctl(fd, ADXL345_SET_FREQUENCY, (void*)&frequencyCode);
-  RTEMS_CHECK_RV(rv, "adxl345 set frequency");
 
   uint8_t range = 3; // 16 g.
   rv = ioctl(fd, ADXL345_SET_RANGE, (void*)&range);
@@ -262,7 +246,35 @@ rtems_task Task_Read_ADXL345(
 
   // uint8_t bufferSample = 0;
   while (1) {
+    if (adxlFlag) {
+      uint8_t frequencyCode;
+      switch (frequency) {
+        case 100:
+          frequencyCode = 0xA;
+          break;
+
+        case 800:
+          frequencyCode = 0xD;
+          break;
+
+        default:
+          frequencyCode = 0xD;
+          printf("Frequency value error!\n");
+          break;
+      }
+      rv = ioctl(fd, ADXL345_SET_FREQUENCY, (void*)&frequencyCode);
+      RTEMS_CHECK_RV(rv, "adxl345 set frequency");
+
+      fifoStoredA = 0;
+      fifoStoredB = 0;
+      fifoWriteIndex = 0;
+      fifoReadAIndex = 0;
+      fifoReadBIndex = 0;
+      adxlFlag = false;
+    }
+
     rtems_rate_monotonic_period( period, rtems_clock_get_ticks_per_second() / (frequency / 25) );
+
     float data[3];
     uint8_t fifoEntries;
     rv = ioctl(fd, ADXL345_READ_FIFO_ENTRIES, (void*)&fifoEntries);
@@ -326,15 +338,41 @@ rtems_task Task_Processing(
 {
   uint32_t samplesAmount = processingStep * frequency / 1000;
   // Velocity
-  float a[5] = {1, -3.79479110307941, 5.40516686172617, -3.42474734727425, 0.814405997727279};
-  float b[5] = {0.902444456862944, -3.60977782745178, 5.41466674117766, -3.60977782745178, 0.902444456862944};
+  float a800[5] = {1, -3.79479110307941, 5.40516686172617, -3.42474734727425, 0.814405997727279};
+  float b800[5] = {0.902444456862944, -3.60977782745178, 5.41466674117766, -3.60977782745178, 0.902444456862944};
+  float a100[5] = {1, -2.36951300718204, 2.31398841441588, -1.05466540587857, 0.187379492368185};
+  float b100[5] = {0.432846644990292, -1.73138657996117, 2.59707986994175, -1.73138657996117, 0.432846644990292};
   float iirIn[3][5] = {0};
   float iirOut[3][5] = {0};
   float average[3] = {0};
   float averageIntegral[3] = {0};
   float integral[3] = {0};
   uint32_t counterTotal = 0;
+  float *a, *b;
   while (1) {
+    if (processingFlag) {
+      if (frequency == 800) {
+        a = a800;
+        b = b800;
+      } else if (frequency == 100) {
+        a = a100;
+        b = b100;
+      }
+      fifoVelocityStored = 0;
+      fifoVelocityWriteIndex = 0;
+      fifoVelocityReadIndex = 0;
+      fifoProcessedStored = 0;
+      fifoProcessedWriteIndex = 0;
+      fifoProcessedReadIndex = 0;
+      samplesAmount = processingStep * frequency / 1000;
+      memset(iirIn, 0, sizeof(iirIn));
+      memset(iirOut, 0, sizeof(iirOut));
+      memset(average, 0, sizeof(average));
+      memset(averageIntegral, 0, sizeof(averageIntegral));
+      memset(integral, 0, sizeof(integral));
+      processingFlag = false;
+    }
+
     float rms[3] = {0};
     float vrms[3] = {0};
     float ppMin[3] = {FLT_MAX, FLT_MAX, FLT_MAX};
@@ -482,7 +520,7 @@ eMBRegInputCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs )
     // rtems_semaphore_obtain(sem_id, RTEMS_WAIT, RTEMS_NO_TIMEOUT);
 
     // Check if requested registers overlap registers with raw data.
-    if (iRegIndex <= REG_INPUT_INDEX_Z + 19 && REG_INPUT_INDEX_X <= iRegIndex + usNRegs) {
+    if (iRegIndex <= REG_INPUT_INDEX_Z + 19 && REG_INPUT_INDEX_X <= iRegIndex + usNRegs - 1) {
       while (fifoStoredA < 20) { // Possibility of infinite loop!
         // Wait for the rest of fifo samples.
         rtems_task_wake_after(rtems_clock_get_ticks_per_second() * (20 - fifoStoredA) / frequency);
@@ -498,7 +536,7 @@ eMBRegInputCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs )
       fifoStoredA -= 20;
     }
     // Check if requested registers overlap registers with velocity data.
-    if (iRegIndex <= REG_INPUT_INDEX_VELOCITY_Z + 19 && REG_INPUT_INDEX_VELOCITY_X <= iRegIndex + usNRegs) {
+    if (iRegIndex <= REG_INPUT_INDEX_VELOCITY_Z + 19 && REG_INPUT_INDEX_VELOCITY_X <= iRegIndex + usNRegs - 1) {
       while (fifoVelocityStored < 20) { // Possibility of infinite loop!
         // Wait for the rest of fifo samples.
         rtems_task_wake_after(rtems_clock_get_ticks_per_second() * (20 - fifoVelocityStored) / frequency);
@@ -514,7 +552,7 @@ eMBRegInputCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs )
       fifoVelocityStored -= 20;
     }
     // Check if requested registers overlap registers with processed data.
-    if (iRegIndex <= REG_INPUT_INDEX_KURT_Z + 1 && REG_INPUT_INDEX_RMS_X <= iRegIndex + usNRegs) {
+    if (iRegIndex <= REG_INPUT_INDEX_KURT_Z + 1 && REG_INPUT_INDEX_RMS_X <= iRegIndex + usNRegs - 1) {
       while (fifoProcessedStored < 1) { // Possibility of infinite loop!
         // Wait for the rest of fifo samples.
         rtems_task_wake_after(rtems_clock_get_ticks_per_second() * processingStep / 1000);
@@ -539,7 +577,7 @@ eMBRegInputCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs )
       fifoProcessedStored--;
     }
     // Check if requested registers overlap registers with temperature data.
-    if (iRegIndex <= REG_INPUT_INDEX_TEMP + 1 && REG_INPUT_INDEX_TEMP <= iRegIndex + usNRegs) {
+    if (iRegIndex <= REG_INPUT_INDEX_TEMP + 1 && REG_INPUT_INDEX_TEMP <= iRegIndex + usNRegs - 1) {
       // TODO: Try without memcpy
       memcpy(&usRegInputBuf[REG_INPUT_INDEX_TEMP], &temperature, sizeof(USHORT) * 2);
     }
@@ -590,7 +628,54 @@ eMBErrorCode
 eMBRegHoldingCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs,
                  eMBRegisterMode eMode )
 {
-  return MB_ENOREG;
+  eMBErrorCode    eStatus = MB_ENOERR;
+  fifoStoredA = 0;
+  fifoStoredB = 0;
+  fifoWriteIndex = 0;
+  fifoReadAIndex = 0;
+  fifoReadBIndex = 0;
+  fifoVelocityStored = 0;
+  fifoVelocityWriteIndex = 0;
+  fifoVelocityReadIndex = 0;
+  fifoProcessedStored = 0;
+  fifoProcessedWriteIndex = 0;
+  fifoProcessedReadIndex = 0;
+  fifoOverrunAdxl = 0;
+  fifoOverrunRawA = 0;
+  fifoOverrunRawB = 0;
+  fifoOverrunVelocity = 0;
+  fifoOverrunProcessed = 0;
+  frequency = (uint16_t)(*pucRegBuffer++) << 8;
+  frequency |= (uint16_t)(*pucRegBuffer++);
+  processingStep = (uint16_t)(*pucRegBuffer++) << 8;
+  processingStep |= (uint16_t)(*pucRegBuffer++);
+  uint16_t mode = (uint16_t)(*pucRegBuffer++) << 8;
+  mode |= (uint16_t)(*pucRegBuffer++);
+  switch (mode) {
+    case 0:
+      fifoUsedSize = frequency;
+      fifoVelocityUsedSize = fifoUsedSize;
+      fifoProcessedUsedSize = 5;
+      break;
+    case 1:
+      fifoUsedSize = processingStep * frequency / 200;;
+      fifoVelocityUsedSize = fifoUsedSize;
+      fifoProcessedUsedSize = 5;
+      break;
+    case 2:
+      fifoUsedSize = frequency * 600;
+      fifoVelocityUsedSize = fifoUsedSize;
+      fifoProcessedUsedSize = 5;
+      break;
+    case 3:
+      fifoUsedSize = processingStep * frequency / 200;;
+      fifoVelocityUsedSize = fifoUsedSize;
+      fifoProcessedUsedSize = 600000 / processingStep;
+      break;      
+  }
+  adxlFlag = true;
+  processingFlag = true;
+  return eStatus;
 }
 
 
