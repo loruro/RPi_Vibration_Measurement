@@ -403,7 +403,7 @@ rtems_task Task_Processing(
         integral[j] += velocitySample[j] / frequency;
         averageIntegral[j] = (averageIntegral[j] * counterTotal + integral[j]) / (counterTotal + 1);
         velocitySample[j] = integral[j] - averageIntegral[j];
-        velocitySample[j] *= 9806.65;
+        velocitySample[j] *= 1000.0;
       }
       counterTotal++;
 
