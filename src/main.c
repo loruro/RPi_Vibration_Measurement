@@ -58,6 +58,7 @@
 // #define FREQ 100
 #define FIFO_SIZE 480000 // 800 Hz for 10 minutes.
 #define FIFO_PROCESSED_SIZE 6000 // 10 Hz for 10 minutes.
+#define FIFO_TEMPERATURE_SIZE 2400 // 4 Hz for 10 minutes.
 // #define BUFFER_LENGTH 20
 #define REG_INPUT_START 1
 #define REG_INPUT_NREGS (2+120+120+24+2)
@@ -108,6 +109,7 @@ float fifoPPZ[FIFO_PROCESSED_SIZE];
 float fifoKurtX[FIFO_PROCESSED_SIZE];
 float fifoKurtY[FIFO_PROCESSED_SIZE];
 float fifoKurtZ[FIFO_PROCESSED_SIZE];
+float fifoTemperature[FIFO_TEMPERATURE_SIZE];
 
 // uint32_t fifoUsedSize = frequency; // RAW Live
 // uint32_t fifoUsedSize = processingStep * frequency / 200; // Processed Live
@@ -128,9 +130,15 @@ uint32_t fifoProcessedStored = 0;
 uint32_t fifoProcessedWriteIndex = 0;
 uint32_t fifoProcessedReadIndex = 0;
 
-float temperature;
+uint32_t fifoTemperatureUsedSize  = 4;
+uint32_t fifoTemperatureStored = 0;
+uint32_t fifoTemperatureWriteIndex = 0;
+uint32_t fifoTemperatureReadIndex = 0;
+
+// float temperature;
 bool adxlFlag = true;
 bool processingFlag = true;
+bool temperatureFlag = true;
 
 /* Semaphore ***************************/
 rtems_id sem_id;
@@ -142,6 +150,7 @@ uint16_t fifoOverrunRawA = 0;
 uint16_t fifoOverrunRawB = 0;
 uint16_t fifoOverrunVelocity = 0;
 uint16_t fifoOverrunProcessed = 0;
+uint16_t fifoOverrunTemperature = 0;
 /**************************************/
 
 rtems_task Task_Read_MCP9808(
@@ -175,10 +184,30 @@ rtems_task Task_Read_MCP9808(
   RTEMS_CHECK_RV(rv, "Open /dev/i2c.mcp9808");
 
   while (1) {
+    if (temperatureFlag) {
+      fifoTemperatureStored = 0;
+      fifoTemperatureWriteIndex = 0;
+      fifoTemperatureReadIndex = 0;
+      temperatureFlag = false;
+    }
     rtems_rate_monotonic_period( period, rtems_clock_get_ticks_per_second() / 4 );
+    float temperature;
     rv = ioctl(fd, MCP9808_READ_TEMP,(void*)&temperature);
     // printf("Temp: %f\n", temp); /***************/
     RTEMS_CHECK_RV(rv, "mcp9808 gpio set output");
+
+    fifoTemperature[fifoTemperatureWriteIndex] = temperature;
+
+    if (fifoTemperatureStored < fifoTemperatureUsedSize) {
+      fifoTemperatureStored++;
+    } else {
+      fifoOverrunTemperature++;
+    }
+    fifoTemperatureWriteIndex++;
+    if (fifoTemperatureWriteIndex >= fifoTemperatureUsedSize) {
+      fifoTemperatureWriteIndex = 0;
+    }
+
     // rtems_printer printer;
     // rtems_print_printer_printf( &printer );
     // rtems_rate_monotonic_report_statistics_with_plugin( &printer );
@@ -578,8 +607,17 @@ eMBRegInputCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs )
     }
     // Check if requested registers overlap registers with temperature data.
     if (iRegIndex <= REG_INPUT_INDEX_TEMP + 1 && REG_INPUT_INDEX_TEMP <= iRegIndex + usNRegs - 1) {
+      while (fifoTemperatureStored< 1) { // Possibility of infinite loop!
+        // Wait for the rest of fifo samples.
+        rtems_task_wake_after(rtems_clock_get_ticks_per_second() * 4);
+      }
       // TODO: Try without memcpy
-      memcpy(&usRegInputBuf[REG_INPUT_INDEX_TEMP], &temperature, sizeof(USHORT) * 2);
+      memcpy(&usRegInputBuf[REG_INPUT_INDEX_TEMP], &fifoTemperature[fifoTemperatureReadIndex], sizeof(USHORT) * 2);
+      fifoTemperatureReadIndex++;
+      if (fifoTemperatureReadIndex >= fifoTemperatureUsedSize) {
+        fifoTemperatureReadIndex = 0;
+      }
+      fifoTemperatureStored--;
     }
 
     while( usNRegs > 0 )
@@ -615,6 +653,10 @@ eMBRegInputCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs )
           ( UCHAR )( fifoOverrunProcessed >> 8 );
     *pucRegBuffer++ =
           ( UCHAR )( fifoOverrunProcessed & 0xFF );
+    *pucRegBuffer++ =
+          ( UCHAR )( fifoOverrunTemperature >> 8 );
+    *pucRegBuffer++ =
+          ( UCHAR )( fifoOverrunTemperature & 0xFF );
   }
   else
   {
@@ -640,11 +682,15 @@ eMBRegHoldingCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs,
   fifoProcessedStored = 0;
   fifoProcessedWriteIndex = 0;
   fifoProcessedReadIndex = 0;
+  fifoTemperatureStored = 0;
+  fifoTemperatureWriteIndex = 0;
+  fifoTemperatureReadIndex = 0;
   fifoOverrunAdxl = 0;
   fifoOverrunRawA = 0;
   fifoOverrunRawB = 0;
   fifoOverrunVelocity = 0;
   fifoOverrunProcessed = 0;
+  fifoOverrunTemperature = 0;
   frequency = (uint16_t)(*pucRegBuffer++) << 8;
   frequency |= (uint16_t)(*pucRegBuffer++);
   processingStep = (uint16_t)(*pucRegBuffer++) << 8;
@@ -656,25 +702,30 @@ eMBRegHoldingCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs,
       fifoUsedSize = frequency;
       fifoVelocityUsedSize = fifoUsedSize;
       fifoProcessedUsedSize = 5;
+      fifoTemperatureUsedSize = 4;
       break;
     case 1:
       fifoUsedSize = processingStep * frequency / 200;;
       fifoVelocityUsedSize = fifoUsedSize;
       fifoProcessedUsedSize = 5;
+      fifoTemperatureUsedSize = 4;
       break;
     case 2:
       fifoUsedSize = frequency * 600;
       fifoVelocityUsedSize = fifoUsedSize;
       fifoProcessedUsedSize = 5;
+      fifoTemperatureUsedSize = FIFO_TEMPERATURE_SIZE;
       break;
     case 3:
       fifoUsedSize = processingStep * frequency / 200;;
       fifoVelocityUsedSize = fifoUsedSize;
       fifoProcessedUsedSize = 600000 / processingStep;
+      fifoTemperatureUsedSize = 4;
       break;      
   }
   adxlFlag = true;
   processingFlag = true;
+  temperatureFlag = true;
   return eStatus;
 }
 
