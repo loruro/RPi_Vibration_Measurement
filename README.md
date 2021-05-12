@@ -1,3 +1,7 @@
+# RPi Vibration Measurement
+
+The purpose of the project was to create a device for measuring vibrations and temperature of mechatronic devices.
+
 ## Hardware
 
 <div align="center"><img src="img/schematic.jpg" height="400"/></div>
@@ -41,7 +45,8 @@ It is responsible for communication with PC using [UART](https://en.wikipedia.or
 The protocol was implemented using [FreeMODBUS](https://github.com/cwalter-at/freemodbus) library. 
 Thread reads data from FIFOs and shares it as *Modbus Input Registers*.
 Measurements are stored in 32-bit *float* format but *Input Registers* are 16-bit type, so each measurement is stored in 2 registers.
-To reduce amount of frames on interface with PC, speed and acceleration measurements are stored in registers in a series of 20. This whole data can be read with only one *Modbus* request frame.
+To reduce amount of frames on interface with PC, acceleration and velocity measurements are stored in registers in a series of 20. This whole data can be read with only one *Modbus* request frame.  
+  
 *Modbus Input Registers* of the device:
 
 | Address | Registers | Content                            | Unit |
@@ -67,7 +72,8 @@ To reduce amount of frames on interface with PC, speed and acceleration measurem
 | 0x0108  | 2         | Acceleration kurtosis - Z-axis     | -    |
 | 0x010A  | 2         | Temperature                        | °C   |
 
-Additionaly the device has *Holding Registers*. They configuration data.
+Additionaly the device has *Holding Registers*. They store configuration data.  
+  
 *Modbus Holding Registers* of the device:
 
 | Address | Registers | Content                            | Unit |
@@ -82,7 +88,7 @@ Step time of these calculations is defined by user. Results are written to FIFOs
 
 Diagram below shows the flow of data:
 
-<div align="center"><img src="img/diagram.svg" height="400"/></div>
+<div align="center"><img src="img/diagram.svg" height="300"/></div>
 
 ## Data processing
 The data from accelerometer is processed to obtain velocity and statistical data.
@@ -92,16 +98,16 @@ First, the [high-pass filter](https://en.wikipedia.org/wiki/High-pass_filter) wi
 Fourth-order [Butterworth filter](https://en.wikipedia.org/wiki/Butterworth_filter) was used. It was implemented as digital [IIR filter](https://en.wikipedia.org/wiki/Infinite_impulse_response).
 For 800 Hz signal its [transfer function](https://en.wikipedia.org/wiki/Transfer_function) is show below:
 
-<div align="center"><img src="img/transfer_function.png" height="400"/></div>
+<div align="center"><img src="img/transfer_function.png" height="56"/></div>
 
 and [Bode plot](https://en.wikipedia.org/wiki/Bode_plot):
 
-<div align="center"><img src="img/bode.png" height="400"/></div>
+<div align="center"><img src="img/bode.png" height="300"/></div>
 
 Next, the average value is subtracted from the signal.
 Average value is calculated using formula:
 
-<div align="center"><img src="img/averaging_formula.png" height="400"/></div>
+<div align="center"><img src="img/averaging_formula.png" height="56"/></div>
 
 where:
 * xₙ - signal sample
@@ -110,7 +116,7 @@ where:
 
 Next, the signal is integrated using formula:
 
-<div align="center"><img src="img/integration_formula.png" height="400"/></div>
+<div align="center"><img src="img/integration_formula.png" height="56"/></div>
 
 where:
 * yₙ - integrated signal
@@ -122,7 +128,7 @@ Last step is to multiply the signal by 1000 to convert to mm/s.
 ### Statistical data
 To calculate [root mean square](https://en.wikipedia.org/wiki/Root_mean_square) of acceleration and velocity I used the following formula:
 
-<div align="center"><img src="img/rms_formula.png" height="400"/></div>
+<div align="center"><img src="img/rms_formula.png" height="75"/></div>
 
 where:
 * xₙ - signal sample
@@ -132,7 +138,7 @@ To calculate peak-to-peak amplitude of acceleration I subtracted min sample from
 
 To calculate [kurtosis](https://en.wikipedia.org/wiki/Kurtosis) of acceleration I used the following formula:
 
-<div align="center"><img src="img/kurtosis_formula.png" height="400"/></div>
+<div align="center"><img src="img/kurtosis_formula.png" height="106"/></div>
 
 where:
 * xₙ - signal sample
@@ -143,11 +149,11 @@ where:
 I did some measurements on common household appliances.
 The first was an electric kettle.
 
-<div align="center"><img src="img/kettle.jpg" height="400"/></div>
+<div align="center"><img src="img/kettle.jpg" height="300"/></div>
 
 Graph of acceleration and RMS of one of the axes is shown below.
 
-<div align="center"><img src="img/kettle_graph.png" height="400"/></div>
+<div align="center"><img src="img/kettle_graph.png" height="300"/></div>
 
 After 5 s of measurement, it is clearly visible that the vibration amplitude begins to increase.
 By 30 s, the vibrations will increase all the time and then begin to weaken, until 40 s, where they remain constant.
@@ -159,7 +165,7 @@ As these bubbles form and collapse, the noise and vibrations are generated as sh
 At 30 s, all the water in the kettle begins to boil and the above phenomenon is getting weaker.
 After 40 s, all the water in the kettle boils, emitting much weaker vibrations.
 
-<div align="center"><img src="img/kettle_spectrogram.png" height="400"/></div>
+<div align="center"><img src="img/kettle_spectrogram.png" height="300"/></div>
 
 In the above spectrogram you can see the starting of boiling water.
 At 5 s, vibrations with a very wide spectrum appear.
@@ -169,49 +175,49 @@ In 30 s, these vibrations rapidly weaken, and vibrations with a frequency of abo
 
 The second tested appliance was a lawn mower.
 
-<div align="center"><img src="img/mower.jpg" height="400"/></div>
+<div align="center"><img src="img/mower.jpg" height="300"/></div>
 
 Below are graphs of the acceleration of each axis and a graph comparing the RMS of all axes.
 
-<div align="center"><img src="img/mower_x.png" width="320"/><img src="img/mower_y.png" width="320"/></div>
-<div align="center"><img src="img/mower_z.png" width="320"/><img src="img/mower_rms.png" width="320"/></div>
+<div align="center"><img src="img/mower_x.png" height="200"/><img src="img/mower_y.png" height="200"/></div>
+<div align="center"><img src="img/mower_z.png" height="200"/><img src="img/mower_rms.png" height="200"/></div>
 
 Just before 4 s, the mower starts.
 Engine reaches highest speed before 10 s and at 12 s, its speed is reduced.
 The cycle is repeated several times.
-Graphs clearly show changes in the vibration amplitude depending on the mower engine speed. 
+Graphs clearly show changes in the vibration amplitude depending on the mower engine speed.  
 Graphs of the amplitude spectrum for the measurement fragments during higher(left) and lower(right) engine revolutions are presented below.
 
-<div align="center"><img src="img/mower_high_fft.png" width="320"/><img src="img/mower_low_fft.png" width="320"/></div>
+<div align="center"><img src="img/mower_high_fft.png" height="200"/><img src="img/mower_low_fft.png" height="200"/></div>
 
 During higher revolutions the frequency of about 44 Hz becomes noticeable. During lower revolutions the frequency of about 25 Hz becomes noticeable.
 
 The following spectrogram shows clear changes in the amplitude spectrum during the measurement.
 
-<div align="center"><img src="img/mower_spectrogram.png" height="400"/></div>
+<div align="center"><img src="img/mower_spectrogram.png" height="300"/></div>
 
 The last tested appliance was a fan with a weight attached to one of its blades. The purpose of the weight was to reduce the balance and increase the vibration amplitude.
 
-<div align="center"><img src="img/fan.jpg" height="400"/></div>
+<div align="center"><img src="img/fan.jpg" height="300"/></div>
 
 Acceleration graph for all axes is shown below.
 
-<div align="center"><img src="img/fan_acc.png" height="400"/></div>
+<div align="center"><img src="img/fan_acc.png" height="300"/></div>
 
 The graph shows very regular oscillations.
 Velocity graph is shown below.
 
-<div align="center"><img src="img/fan_vel.png" height="400"/></div>
+<div align="center"><img src="img/fan_vel.png" height="300"/></div>
 
 It is even more regular than the acceleration signal.
 
 Graph of the amplitude spectrum is shown below.
 
-<div align="center"><img src="img/fan_fft.png" height="400"/></div>
+<div align="center"><img src="img/fan_fft.png" height="300"/></div>
 
 The graph clearly shows frequency of 16 Hz and its successive harmonics.
 
-<div align="center"><img src="img/fan_spectrogram.png" height="400"/></div>
+<div align="center"><img src="img/fan_spectrogram.png" height="300"/></div>
 
 In the above spectrogram, the visible main frequency and its harmonics remain unchanged during the entire measurement time.
 
@@ -237,7 +243,7 @@ Environment is ok
 cd rtems
 ../source-builder/sb-set-builder --log=build-log.txt --prefix=$HOME/development/rtems/compiler/4.12 4.12/rtems-arm
 ```
-It will take a while.
+It will take a while.  
 After successful build, edit _.profile_ in your _$HOME_ directory and add:
 ```Shell
 PATH=$HOME/development/rtems/compiler/4.12/bin:$PATH
@@ -250,7 +256,7 @@ After entering:
 ```Shell
 arm-rtems4.12-gcc -v
 ```
-You should see compiler version.
+You should see compiler version.  
 Now follow next steps:
 ```Shell
 cd $HOME/development/rtems
@@ -285,7 +291,7 @@ cd RPi_Vibration_Measurement/src
 ```
 Executed script creates _.ralf_ file with system image. It will be located in _./o-optimize/_ and also in TFTP server root directory (description [here](#boot-from-tftp-server-by-using-u-boot)).
 
-Now there are 2 options to run the software on Raspberry Pi. By booting directly from SD card or using [U-Boot]() to load image from TFTP server.
+Now there are 2 options to run the software on Raspberry Pi. By booting directly from SD card or using [U-Boot](https://en.wikipedia.org/wiki/Das_U-Boot) to load image from TFTP server.
 
 #### Boot from SD card
 
@@ -298,7 +304,7 @@ Follow these steps:
 #### Boot from TFTP server by using U-Boot
 
 Booting directly from SD card everytime you change something during development process would be extremely tedious.
-I used the [U-Boot] bootloader to ease the development. It is software located on SD card, which after power up uses Ethernet interface to communicate with TFTP server on local network and download target system image.
+I used the [U-Boot](https://en.wikipedia.org/wiki/Das_U-Boot) bootloader to ease the development. It is software located on SD card, which after power up uses Ethernet interface to communicate with TFTP server on local network and download target system image.
 You can use your computer as TFTP server. On Ubuntu 16.04 64-bit execute command:
 ```Shell
 sudo apt−get install tftpd−hpa
@@ -322,13 +328,14 @@ Connect Raspberry Pi to your local network with Ethernet cable.
 Use terminal to connect to serial port of USB/UART converter and power-up the device.
 If you can see U-Boot printing something on your terminal, it means that everything went well.
 Now, during booting process of U-Boot, click any button to stop it from executing its default script.
-If you missed it and the device is not responding, just reset Raspberry Pi.
+If you missed it and the device is not responding, just reset Raspberry Pi.  
 Now type those commands:
 ```Shell
 set env bootcmd "dhcp 192.168.0.2:kernel.img;bootm"
 saveenv
 ```
 Replace _192.168.0.2_ with address of your TFTP server.
+
 Now, everytime you power-up the device, it should connect to the server, load system image and boot it.
 
 ## Desktop application
