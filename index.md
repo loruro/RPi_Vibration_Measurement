@@ -1,7 +1,5 @@
 <a href="https://loruro.github.io/"><sub>⟵ Back</sub></a>
 
-# RPi Vibration Measurement
-
 The purpose of the project was to create a device for measuring vibrations and temperature of mechatronic devices.
 
 ## Hardware
