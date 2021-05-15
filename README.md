@@ -226,7 +226,7 @@ In the above spectrogram, the visible main frequency and its harmonics remain un
 
 Thanks to the [Alan's Tech Notes](http://alanstechnotes.blogspot.com/2013/03/rtems-on-raspberry-pi.html) I managed to set up development environment properly on Ubuntu 16.04 64-bit.  
 Steps:
-```Shell
+```shell
 mkdir -p $HOME/development/rtems/compiler
 cd $HOME/development/rtems
 
@@ -235,30 +235,30 @@ cd rtems-source-builder
 source-builder/sb-check
 ```
 You should see something like:
-```
+```shell
 RTEMS Source Builder - Check, 4.12 (1c68dbb29392)
 Environment is ok
 ```
-```Shell
+```shell
 cd rtems
 ../source-builder/sb-set-builder --log=build-log.txt --prefix=$HOME/development/rtems/compiler/4.12 4.12/rtems-arm
 ```
 It will take a while.  
 After successful build, edit _.profile_ in your _$HOME_ directory and add:
-```Shell
+```shell
 PATH=$HOME/development/rtems/compiler/4.12/bin:$PATH
 ```
 Then execute:
-```Shell
+```shell
 source $HOME/.profile
 ```
 After entering:
-```Shell
+```shell
 arm-rtems4.12-gcc -v
 ```
 You should see compiler version.  
 Now follow next steps:
-```Shell
+```shell
 cd $HOME/development/rtems
 git clone git://git.rtems.org/rtems.git rtems-git
 
@@ -272,18 +272,18 @@ cd build-rtems-rpi
 make install
 ```
 Now again edit _.profile_ in _$HOME_ directory and add:
-```Shell
+```shell
 export RTEMS_MAKEFILE_PATH=$HOME/development/rtems/bsps/4.12/arm−rtems4.12/raspberrypi2
 ```
 And again execute:
-```Shell
+```shell
 source $HOME/.profile
 ```
 Now environment should be ready.
 
 ### Compiling the project
 Execute the following commands:
-```Shell
+```shell
 cd
 git clone https://github.com/loruro/RPi_Vibration_Measurement.git
 cd RPi_Vibration_Measurement/src
@@ -306,18 +306,18 @@ Follow these steps:
 Booting directly from SD card everytime you change something during development process would be extremely tedious.
 I used the [U-Boot](https://en.wikipedia.org/wiki/Das_U-Boot) bootloader to ease the development. It is software located on SD card, which after power up uses Ethernet interface to communicate with TFTP server on local network and download target system image.
 You can use your computer as TFTP server. On Ubuntu 16.04 64-bit execute command:
-```Shell
+```shell
 sudo apt−get install tftpd−hpa
 ```
 This will install and automatically start TFTP server. It will share files located in _/var/lib/tftpboot_. This is where our system image file should be located.
 
 To use U-Boot, you need to download and compile it first.
 [Cross-compiler](https://en.wikipedia.org/wiki/Cross_compiler) is needed for this:
-```Shell
+```shell
 sudo apt−get install gcc-arm-linux-gnueabi
 ```
 Now download sources and compile:
-```Shell
+```shell
 git clone git://git.denx.de/u−boot.git
 export CROSS_COMPILE=arm−linux−gnueabi−
 make rpi_2_defconfig
@@ -330,7 +330,7 @@ If you can see U-Boot printing something on your terminal, it means that everyth
 Now, during booting process of U-Boot, click any button to stop it from executing its default script.
 If you missed it and the device is not responding, just reset Raspberry Pi.  
 Now type those commands:
-```Shell
+```shell
 set env bootcmd "dhcp 192.168.0.2:kernel.img;bootm"
 saveenv
 ```
