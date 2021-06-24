@@ -4,11 +4,11 @@ The purpose of the project was to create a device for measuring vibrations and t
 
 ## Hardware
 
-<div align="center"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/schematic.jpg" height="400"/></div>
+<div align="center"><a href="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/schematic.jpg" target="_blank"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/schematic.jpg" height="400"/></a></div>
 
 Device consists of [Raspberry Pi 2 B](https://www.raspberrypi.org/) single-board computer, [ADXL345](https://www.analog.com/en/products/adxl345.html) accelerometer, [MCP9808](https://www.microchip.com/wwwproducts/en/MCP9808) temperature sensor and simple [USB/UART converter](https://github.com/loruro/Barometer_STM32/blob/master/datasheets/USB-UART_converter.pdf).
 
-<div align="center"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/device.jpg" height="200"/></div>
+<div align="center"><a href="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/device.jpg" target="_blank"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/device.jpg" height="200"/></a></div>
 
 Red button visible on photo above was connected to *RUN* pins. It allowed to easily reset the device. It was very helpful during development.
 
@@ -88,7 +88,7 @@ Step time of these calculations is defined by user. Results are written to FIFOs
 
 Diagram below shows the flow of data:
 
-<div align="center"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/diagram.svg" height="300"/></div>
+<div align="center"><a href="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/diagram.svg" target="_blank"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/diagram.svg" height="300"/></a></div>
 
 ## Data processing
 The data from accelerometer is processed to obtain velocity and statistical data.
@@ -98,16 +98,16 @@ First, the [high-pass filter](https://en.wikipedia.org/wiki/High-pass_filter) wi
 Fourth-order [Butterworth filter](https://en.wikipedia.org/wiki/Butterworth_filter) was used. It was implemented as digital [IIR filter](https://en.wikipedia.org/wiki/Infinite_impulse_response).
 For 800 Hz signal its [transfer function](https://en.wikipedia.org/wiki/Transfer_function) is show below:
 
-<div align="center"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/transfer_function.png" height="56"/></div>
+<div align="center"><a href="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/transfer_function.png" target="_blank"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/transfer_function.png" height="56"/></a></div>
 
 and [Bode plot](https://en.wikipedia.org/wiki/Bode_plot):
 
-<div align="center"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/bode.png" height="300"/></div>
+<div align="center"><a href="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/bode.png" target="_blank"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/bode.png" height="300"/></a></div>
 
 Next, the average value is subtracted from the signal.
 Average value is calculated using formula:
 
-<div align="center"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/averaging_formula.png" height="56"/></div>
+<div align="center"><a href="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/averaging_formula.png" target="_blank"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/averaging_formula.png" height="56"/></a></div>
 
 where:
 * xₙ - signal sample
@@ -116,7 +116,7 @@ where:
 
 Next, the signal is integrated using formula:
 
-<div align="center"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/integration_formula.png" height="56"/></div>
+<div align="center"><a href="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/integration_formula.png" target="_blank"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/integration_formula.png" height="56"/></a></div>
 
 where:
 * yₙ - integrated signal
@@ -128,7 +128,7 @@ Last step is to multiply the signal by 1000 to convert to mm/s.
 ### Statistical data
 To calculate [root mean square](https://en.wikipedia.org/wiki/Root_mean_square) of acceleration and velocity I used the following formula:
 
-<div align="center"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/rms_formula.png" height="75"/></div>
+<div align="center"><a href="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/rms_formula.png" target="_blank"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/rms_formula.png" height="75"/></a></div>
 
 where:
 * xₙ - signal sample
@@ -138,7 +138,7 @@ To calculate peak-to-peak amplitude of acceleration I subtracted min sample from
 
 To calculate [kurtosis](https://en.wikipedia.org/wiki/Kurtosis) of acceleration I used the following formula:
 
-<div align="center"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/kurtosis_formula.png" height="106"/></div>
+<div align="center"><a href="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/kurtosis_formula.png" target="_blank"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/kurtosis_formula.png" height="106"/></a></div>
 
 where:
 * xₙ - signal sample
@@ -149,11 +149,11 @@ where:
 I did some measurements on common household appliances.
 The first was an electric kettle.
 
-<div align="center"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/kettle.jpg" height="300"/></div>
+<div align="center"><a href="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/kettle.jpg" target="_blank"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/kettle.jpg" height="300"/></a></div>
 
 Graph of acceleration and RMS of one of the axes is shown below.
 
-<div align="center"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/kettle_graph.png" height="300"/></div>
+<div align="center"><a href="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/kettle_graph.png" target="_blank"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/kettle_graph.png" height="300"/></a></div>
 
 After 5 s of measurement, it is clearly visible that the vibration amplitude begins to increase.
 By 30 s, the vibrations will increase all the time and then begin to weaken, until 40 s, where they remain constant.
@@ -165,7 +165,7 @@ As these bubbles form and collapse, the noise and vibrations are generated as sh
 At 30 s, all the water in the kettle begins to boil and the above phenomenon is getting weaker.
 After 40 s, all the water in the kettle boils, emitting much weaker vibrations.
 
-<div align="center"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/kettle_spectrogram.png" height="300"/></div>
+<div align="center"><a href="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/kettle_spectrogram.png" target="_blank"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/kettle_spectrogram.png" height="300"/></a></div>
 
 In the above spectrogram you can see the starting of boiling water.
 At 5 s, vibrations with a very wide spectrum appear.
@@ -175,12 +175,12 @@ In 30 s, these vibrations rapidly weaken, and vibrations with a frequency of abo
 
 The second tested appliance was a lawn mower.
 
-<div align="center"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/mower.jpg" height="300"/></div>
+<div align="center"><a href="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/mower.jpg" target="_blank"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/mower.jpg" height="300"/></a></div>
 
 Below are graphs of the acceleration of each axis and a graph comparing the RMS of all axes.
 
-<div align="center"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/mower_x.png" height="200"/><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/mower_y.png" height="200"/></div>
-<div align="center"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/mower_z.png" height="200"/><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/mower_rms.png" height="200"/></div>
+<div align="center"><a href="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/mower_x.png" target="_blank"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/mower_x.png" height="200"/></a><a href="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/mower_y.png" target="_blank"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/mower_y.png" height="200"/></a></div>
+<div align="center"><a href="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/mower_z.png" target="_blank"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/mower_z.png" height="200"/></a><a href="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/mower_rms.png" target="_blank"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/mower_rms.png" height="200"/></a></div>
 
 Just before 4 s, the mower starts.
 Engine reaches highest speed before 10 s and at 12 s, its speed is reduced.
@@ -188,36 +188,36 @@ The cycle is repeated several times.
 Graphs clearly show changes in the vibration amplitude depending on the mower engine speed.  
 Graphs of the amplitude spectrum for the measurement fragments during higher(left) and lower(right) engine revolutions are presented below.
 
-<div align="center"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/mower_high_fft.png" height="200"/><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/mower_low_fft.png" height="200"/></div>
+<div align="center"><a href="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/mower_high_fft.png" target="_blank"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/mower_high_fft.png" height="200"/></a><a href="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/mower_low_fft.png" target="_blank"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/mower_low_fft.png" height="200"/></a></div>
 
 During higher revolutions the frequency of about 44 Hz becomes noticeable. During lower revolutions the frequency of about 25 Hz becomes noticeable.
 
 The following spectrogram shows clear changes in the amplitude spectrum during the measurement.
 
-<div align="center"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/mower_spectrogram.png" height="300"/></div>
+<div align="center"><a href="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/mower_spectrogram.png" target="_blank"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/mower_spectrogram.png" height="300"/></a></div>
 
 The last tested appliance was a fan with a weight attached to one of its blades. The purpose of the weight was to reduce the balance and increase the vibration amplitude.
 
-<div align="center"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/fan.jpg" height="300"/></div>
+<div align="center"><a href="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/fan.jpg" target="_blank"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/fan.jpg" height="300"/></a></div>
 
 Acceleration graph for all axes is shown below.
 
-<div align="center"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/fan_acc.png" height="300"/></div>
+<div align="center"><a href="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/fan_acc.png" target="_blank"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/fan_acc.png" height="300"/></a></div>
 
 The graph shows very regular oscillations.
 Velocity graph is shown below.
 
-<div align="center"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/fan_vel.png" height="300"/></div>
+<div align="center"><a href="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/fan_vel.png" target="_blank"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/fan_vel.png" height="300"/></a></div>
 
 It is even more regular than the acceleration signal.
 
 Graph of the amplitude spectrum is shown below.
 
-<div align="center"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/fan_fft.png" height="300"/></div>
+<div align="center"><a href="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/fan_fft.png" target="_blank"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/fan_fft.png" height="300"/></a></div>
 
 The graph clearly shows frequency of 16 Hz and its successive harmonics.
 
-<div align="center"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/fan_spectrogram.png" height="300"/></div>
+<div align="center"><a href="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/fan_spectrogram.png" target="_blank"><img src="https://raw.githubusercontent.com/loruro/RPi_Vibration_Measurement/master/img/fan_spectrogram.png" height="300"/></a></div>
 
 In the above spectrogram, the visible main frequency and its harmonics remain unchanged during the entire measurement time.
 
